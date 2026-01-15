@@ -1,0 +1,274 @@
+/*
+ * @Author: sp1ke 761066757@qq.com
+ * @Date: 2025-12-30 10:25:36
+ * @LastEditors: sp1ke 761066757@qq.com
+ * @LastEditTime: 2025-12-30 14:26:19
+ * @FilePath: \emergency_plan\src\router\index.js
+ * @Description: 全局样式文件
+ */
+/* ========================== 基础重置样式 ========================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  font-family:
+    'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑',
+    Arial, sans-serif;
+  font-size: 14px;
+  color: #303133;
+  background-color: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 清除列表样式 */
+ul,
+ol {
+  list-style: none;
+}
+
+/* 清除链接样式 */
+a {
+  text-decoration: none;
+  color: #409eff;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: #66b1ff;
+}
+
+/* 清除输入框默认样式 */
+input,
+textarea,
+select,
+button {
+  outline: none;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* ========================== 通用布局样式 ========================== */
+/* 页面容器（所有页面的外层容器） */
+.page-container {
+  width: 100%;
+  padding: 20px;
+  min-height: calc(100vh - 60px);
+}
+
+/* 卡片通用样式 */
+.card-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* 按钮组通用样式 */
+.btn-group {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* 表单通用样式 */
+.form-wrapper {
+  width: 100%;
+}
+
+.form-item {
+  margin-bottom: 18px;
+}
+
+/* 列表通用样式 */
+.table-wrapper {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* 空状态通用样式 */
+.empty-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: #909399;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+/* ========================== 步骤配置页面样式 ========================== */
+.step-config {
+  padding: 20px;
+}
+
+/* ========================== 预案编辑页面样式 ========================== */
+.plan-edit {
+  padding: 20px;
+}
+
+/* 流程设计整体容器 */
+.process-design {
+  display: flex;
+  height: 700px;
+}
+
+/* 左侧步骤列表 */
+.step-list {
+  width: 250px;
+  margin-right: 20px;
+}
+
+/* 右侧流程画布 */
+.flow-canvas {
+  flex: 1;
+  border: 1px solid #e6e6e6;
+  border-radius: 4px;
+  position: relative;
+}
+
+/* 画布操作按钮 */
+.canvas-actions {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10;
+}
+
+/* 自定义流程节点样式 */
+.custom-node {
+  width: 200px;
+  border: 1px solid #409eff;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* 节点头部 */
+.node-header {
+  padding: 8px;
+  background: #409eff;
+  color: #fff;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* 节点内容 */
+.node-body {
+  padding: 10px;
+}
+
+.node-body .el-select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+/* ========================== 预案列表页面样式 ========================== */
+.plan-list {
+  padding: 20px;
+}
+
+/* 摄像头监控容器 */
+.camera-container {
+  text-align: center;
+}
+
+.camera-container video {
+  width: 100%;
+  height: 400px;
+  border: 1px solid #e6e6e6;
+  border-radius: 4px;
+  background-color: #000;
+}
+
+/* ========================== Vue Flow 流程画布样式补充 ========================== */
+/* 适配 Vue Flow 容器高度 */
+.vue-flow__container {
+  height: 100%;
+  width: 100%;
+}
+
+/* 开始/结束节点样式 */
+.vue-flow__node-default {
+  padding: 10px;
+  border-radius: 4px;
+  background: #f0f9ff;
+  border: 1px solid #7cc3fc;
+  color: #303133;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* 自定义步骤节点样式增强 */
+.vue-flow__node-custom-step {
+  padding: 0;
+}
+
+/* 连线样式 */
+.vue-flow__edge-path {
+  stroke: #409eff;
+  stroke-width: 2;
+}
+
+/* ========================== 响应式适配 ========================== */
+@media (max-width: 1200px) {
+  .process-design {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .step-list {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 20px;
+  }
+
+  .flow-canvas {
+    height: 500px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 10px;
+  }
+
+  .flow-canvas {
+    height: 400px;
+  }
+
+  .camera-container video {
+    height: 250px;
+  }
+}
