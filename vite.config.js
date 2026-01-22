@@ -2,7 +2,7 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2025-12-30 10:25:36
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-13 16:45:58
+ * @LastEditTime: 2026-01-22 10:41:17
  * @FilePath: \emergency_plan\vite.config.js
  */
 import { fileURLToPath, URL } from 'node:url'
@@ -37,6 +37,12 @@ export default defineConfig({
         rewrite: (path) => `/emergency${path}`, // 拼接上下文：/api/dict/xxx → /emergency/api/dict/xxx
       },
       '/plan': {
+        target: 'http://localhost:3278',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => `/emergency${path}`, // 拼接上下文：/plan/xxx → /emergency/plan/xxx
+      },
+      '/flow': {
         target: 'http://localhost:3278',
         changeOrigin: true,
         ws: true,

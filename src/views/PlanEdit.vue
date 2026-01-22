@@ -93,7 +93,8 @@
                     : '非任务节点（不可替换）'
                 }}
               </p>
-              <p v-if="selectedCanvasNode?.businessObject['flowable:stepId']">
+              <p v-if="selectedCanvasNode?.flowableStepId">
+                <!-- ✅ 修复：用自定义属性替代businessObject -->
                 <strong>已绑定步骤：</strong>{{ selectedStep?.stepName || '无' }}
               </p>
             </div>
@@ -120,6 +121,9 @@
               <el-button @click="handleSaveCanvas">保存画布</el-button>
               <el-button @click="handleRefreshCanvas">刷新画布</el-button>
               <el-button @click="handleAddDefaultTask">添加默认任务节点</el-button>
+              <!-- 新增：撤销/重做按钮 -->
+              <el-button type="info" @click="handleUndo">撤销</el-button>
+              <el-button type="info" @click="handleRedo">重做</el-button>
             </div>
             <div class="canvas-container" ref="bpmnContainer"></div>
           </el-card>
@@ -315,7 +319,7 @@ const treeProps = ref({
 const cameraList = ref([])
 const deployRecordList = ref([])
 
-// 修正后的空流程模板（带完整布局）
+// 修正后的空流程模板（带完整布局+基础连线）
 const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -327,6 +331,8 @@ const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
   <process id="emptyProcess" name="空流程" isExecutable="true">
     <startEvent id="startEvent" name="开始"></startEvent>
     <endEvent id="endEvent" name="结束"></endEvent>
+    <!-- 核心修复：添加基础连线 -->
+    <sequenceFlow id="flow_start_end" sourceRef="startEvent" targetRef="endEvent"/>
   </process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_emptyProcess">
     <bpmndi:BPMNPlane id="BPMNPlane_emptyProcess" bpmnElement="emptyProcess">
@@ -336,6 +342,11 @@ const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
       <bpmndi:BPMNShape id="BPMNShape_endEvent" bpmnElement="endEvent">
         <dc:Bounds x="600" y="200" width="36" height="36"/>
       </bpmndi:BPMNShape>
+      <!-- 核心修复：添加连线坐标 -->
+      <bpmndi:BPMNEdge id="BPMNEdge_flow_start_end" bpmnElement="flow_start_end">
+        <di:waypoint x="236" y="218"/>
+        <di:waypoint x="600" y="218"/>
+      </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </definitions>`
@@ -372,9 +383,9 @@ const initBpmnModeler = async (xml = initEmptyXml) => {
           prefix: 'flowable',
         },
       },
-      // 禁用所有可选插件，避免构造函数冲突
-      keyboard: { bindTo: document },
-      additionalModules: [], // 暂时清空自定义模块，先解决构造函数问题
+      // 核心修复：移除bindTo，直接禁用keyboard
+      keyboard: false,
+      additionalModules: [],
       disableStackTools: true,
     })
 
@@ -385,24 +396,62 @@ const initBpmnModeler = async (xml = initEmptyXml) => {
       console.warn('BPMN XML导入警告：', warnings)
     }
 
-    // 6. 监听节点选中事件（简化版，避免额外冲突）
+    // 6. 监听节点选中事件（改用标准的 selection.changed 事件）
     const eventBus = bpmnModeler.get('eventBus')
+    const selection = bpmnModeler.get('selection')
+
+    // 先移除所有旧的监听，避免重复注册
     eventBus.off('element.select')
-    eventBus.on('element.select', (e) => {
-      const element = e.element
+    eventBus.off('selection.changed')
+
+    // 核心修复：监听 selection.changed 事件（bpmn-js 标准选中事件）
+    eventBus.on('selection.changed', (e) => {
+      console.log('selection.changed 事件触发', e) // 调试日志
+      const selectedElements = selection.get() || []
+      const element = selectedElements[0] // 取第一个选中的元素
+
       if (element) {
+        // 核心修复：优先从element获取类型，多层兜底
+        const nodeType = element.type || element.$type || element.businessObject?.$type || ''
+        // ✅ 修复：提取flowable属性到自定义字段，不保存整个businessObject
+        const flowableStepId = element.businessObject?.['flowable:stepId'] || ''
         selectedCanvasNode.value = {
           id: element.id,
-          name: element.businessObject.name || '未命名节点',
-          type: element.type,
-          businessObject: JSON.parse(JSON.stringify(element.businessObject || {})),
+          name: element.businessObject?.name || element.name || '未命名节点',
+          type: nodeType,
+          flowableStepId: flowableStepId, // ✅ 新增：自定义字段存储stepId
+          rawElement: element, // 保存原始引用，但不写入XML
         }
-        if (element.type !== 'bpmn:UserTask') {
+
+        // 调试日志：打印完整信息
+        console.log('选中节点信息：', {
+          id: element.id,
+          type: nodeType,
+          name: element.businessObject?.name,
+        })
+
+        // 仅当节点不是用户任务时，清空选中步骤
+        if (nodeType !== 'bpmn:UserTask') {
           selectedStep.value = null
           activeStepId.value = ''
         }
       } else {
+        // 未选中任何元素时清空状态
         selectedCanvasNode.value = null
+        selectedStep.value = null
+        activeStepId.value = ''
+        console.log('未选中任何节点')
+      }
+    })
+
+    // 额外监听 element.click 事件（兜底，确保点击能触发）
+    eventBus.on('element.click', (e) => {
+      console.log('element.click 事件触发', e)
+      const element = e.element
+      if (element) {
+        // 手动触发选中（确保selection更新）
+        selection.deselectAll()
+        selection.select(element)
       }
     })
 
@@ -483,6 +532,7 @@ const handleStepNodeClick = (data) => {
 
   ElMessage.success(`已选中步骤：【${data.stepName}（${data.stepTypeName}）】`)
 
+  console.log(selectedCanvasNode.value?.type)
   if (selectedCanvasNode.value?.type !== 'bpmn:UserTask') {
     ElMessage.warning('当前选中的不是用户任务节点，无法替换，请先选中画布中的矩形任务节点')
   }
@@ -519,36 +569,31 @@ const handleReplaceNodeWithStep = () => {
       return
     }
 
-    // 1. 更新节点名称
+    // 1. 定义要写入的属性
     const newNodeName = `${selectedStep.value.stepName}（${selectedStep.value.stepTypeName}）`
+
+    const stepProps = {
+      stepId: selectedStep.value.id,
+      stepCode: selectedStep.value.stepCode,
+      stepType: selectedStep.value.stepType,
+      moduleCode: currentModuleCode.value,
+      stepName: selectedStep.value.stepName,
+    }
+    //直接写入节点的properties（bpmn-js标准存储位置）
+    node.properties = { ...node.properties, ...stepProps }
+    //同时写入flowable属性（保证XML合法）
     modeling.updateProperties(node, {
       name: newNodeName,
+      'flowable:stepId': selectedStep.value.id,
+      'flowable:stepCode': selectedStep.value.stepCode,
+      'flowable:stepType': selectedStep.value.stepType,
+      'flowable:moduleCode': currentModuleCode.value,
+      'flowable:stepName': selectedStep.value.stepName,
     })
-
-    // 2. 写入Flowable扩展属性
-    const businessObject = node.businessObject
-    // 清空旧属性
-    Object.keys(businessObject).forEach((key) => {
-      if (key.startsWith('flowable:')) {
-        delete businessObject[key]
-      }
-    })
-    // 写入新属性
-    businessObject['flowable:stepId'] = selectedStep.value.id
-    businessObject['flowable:stepCode'] = selectedStep.value.stepCode
-    businessObject['flowable:stepType'] = selectedStep.value.stepType
-    businessObject['flowable:moduleCode'] = currentModuleCode.value
-    businessObject['flowable:stepName'] = selectedStep.value.stepName
-
-    // 3. 强制更新属性
-    modeling.updateProperties(node, {
-      businessObject: businessObject,
-    })
-
-    // 4. 同步更新选中状态
+    // 2. 同步更新选中状态（仅更新自定义字段）
     selectedCanvasNode.value.name = newNodeName
-    selectedCanvasNode.value.businessObject['flowable:stepId'] = selectedStep.value.id
-
+    selectedCanvasNode.value.flowableStepId = selectedStep.value.id
+    console.log('节点properties：', node.properties) // 调试：确认stepId已写入
     ElMessage.success(`✅ 节点替换成功！已绑定步骤：【${selectedStep.value.stepName}】`)
   } catch (e) {
     ElMessage.error(`❌ 节点替换失败：${e.message}`)
@@ -556,7 +601,7 @@ const handleReplaceNodeWithStep = () => {
   }
 }
 
-// 添加默认任务节点
+// 添加默认任务节点（核心修复连线逻辑）
 const handleAddDefaultTask = () => {
   if (!bpmnModeler) {
     ElMessage.error('画布未加载完成，请先等待画布初始化')
@@ -569,6 +614,10 @@ const handleAddDefaultTask = () => {
     const elementRegistry = bpmnModeler.get('elementRegistry')
     const modeling = bpmnModeler.get('modeling')
     const selection = bpmnModeler.get('selection')
+    const moddle = bpmnModeler.get('moddle')
+    // ★ 新增1：获取流程模型（process）和建模命令栈（确保节点挂载到流程）
+    const process = elementRegistry.get('emptyProcess') // 对应XML里的process id
+    //const commandStack = bpmnModeler.get('commandStack')
 
     // 1. 获取开始/结束节点（确保存在）
     let startEvent = elementRegistry.get('startEvent')
@@ -578,104 +627,139 @@ const handleAddDefaultTask = () => {
       return
     }
 
-    // 2. 获取所有已有的用户任务节点并按X坐标排序（找到最后一个任务节点）
+    // 2. 获取所有已有的用户任务节点并按X坐标排序
     const taskNodes = elementRegistry
       .getAll()
       .filter((el) => el.type === 'bpmn:UserTask')
-      .sort((a, b) => a.x - b.x) // 按X坐标从小到大排序
+      .sort((a, b) => a.x - b.x)
 
-    // 3. 计算新节点位置（基于最后一个任务节点）
+    // 3. 计算新节点位置
     let baseX = 300 + taskNodes.length * 150
     let baseY = 200
     let lastTaskNode = null
 
     if (taskNodes.length > 0) {
-      lastTaskNode = taskNodes[taskNodes.length - 1] // 取最后一个任务节点
-      baseX = lastTaskNode.x + 150 // 在上一个节点右侧150px
-      baseY = lastTaskNode.y // 保持和上一个节点同一Y坐标
+      lastTaskNode = taskNodes[taskNodes.length - 1]
+      baseX = lastTaskNode.x + 150
+      baseY = lastTaskNode.y
     }
 
     // 4. 创建任务节点（生成绝对唯一ID）
     let taskId = `userTask_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-    // 双重校验ID唯一性
     while (elementRegistry.get(taskId)) {
       taskId = `userTask_${Date.now()}_${Math.floor(Math.random() * 10000)}_${Math.floor(Math.random() * 100)}`
     }
+
+    // ★ 核心修复1：创建完整的UserTask业务对象（仅保留合法属性）
+    const taskBo = moddle.create('bpmn:UserTask', {
+      id: taskId,
+      name: '未命名任务', // 节点名称（步骤替换后覆盖）
+    })
+
     const task = elementFactory.createShape({
       type: 'bpmn:UserTask',
       id: taskId,
       x: baseX,
       y: baseY,
-      name: '未命名任务',
+      width: 120, // 标准宽高
+      height: 80,
+      // ✅ 修复：删除businessObject赋值
+      // ★ 核心修复2：指定parent为process，确保节点挂载到<process>下
+      parent: process, // parent仅用于BPMN建模，不会写入XML
     })
 
-    // 5. 添加节点到画布
-    canvas.addShape(task)
+    // ★ 核心修复3：用modeling.createShape添加节点（自动挂载到process，无需手动加process属性）
+    modeling.createShape(task, { x: baseX, y: baseY }, process)
 
-    // 6. 创建连接线（核心修复：链式连接）
+    // 5. 创建连接线（保留你的原始逻辑）
     if (lastTaskNode) {
-      // 如果已有任务节点，连接最后一个任务节点到新节点
       const flow1Id = `flow_${lastTaskNode.id}_${task.id}`
       modeling.connect(lastTaskNode, task, {
         id: flow1Id,
         type: 'bpmn:SequenceFlow',
       })
-
-      // 删除最后一个任务节点到结束节点的旧连线
       const oldEndFlows = elementRegistry
         .getAll()
         .filter(
           (el) =>
             el.type === 'bpmn:SequenceFlow' && el.source === lastTaskNode && el.target === endEvent,
         )
-
       oldEndFlows.forEach((flow) => {
         modeling.removeElements([flow])
       })
     } else {
-      // 如果没有任务节点，连接开始节点到新节点
       const flow1Id = `flow_${startEvent.id}_${task.id}`
       modeling.connect(startEvent, task, {
         id: flow1Id,
         type: 'bpmn:SequenceFlow',
       })
+      const defaultFlow = elementRegistry.get('flow_start_end')
+      if (defaultFlow) modeling.removeElements([defaultFlow])
     }
 
-    // 连接新节点到结束节点
     const flow2Id = `flow_${task.id}_${endEvent.id}`
     modeling.connect(task, endEvent, {
       id: flow2Id,
       type: 'bpmn:SequenceFlow',
+      waypoints: [
+        { x: task.x + 120, y: task.y + 40 },
+        { x: endEvent.x, y: endEvent.y + 18 },
+      ],
     })
 
-    // 7. 适配画布视角
+    // 6. 适配画布+选中节点（保留你的原始逻辑）
     canvas.zoom('fit-viewport')
-
-    // 8. 延迟选中新节点（确保元素完全注册）
     setTimeout(() => {
       if (task && selection) {
         selection.deselectAll()
         selection.select(task)
-        // 同步更新选中状态
         selectedCanvasNode.value = JSON.parse(
           JSON.stringify({
             id: task.id,
-            name: task.businessObject.name || '未命名节点',
+            name: task.name || '未命名节点', // ✅ 修复：直接取task.name
             type: task.type,
-            businessObject: task.businessObject || {},
+            // ✅ 修复：删除businessObject赋值
+            flowableStepId: '', // ✅ 新增：自定义字段
           }),
         )
       }
     }, 300)
 
-    ElMessage.success('✅ 任务节点添加成功，已自动选中该节点，请选择左侧步骤进行替换')
+    ElMessage.success('✅ 任务节点添加成功（已写入流程模型）')
   } catch (e) {
     ElMessage.error(`❌ 添加节点失败：${e.message}`)
     console.error('添加节点失败详情：', e)
-    // 兜底清空状态
     selectedCanvasNode.value = null
     selectedStep.value = null
     activeStepId.value = ''
+  }
+}
+
+const handleUndo = () => {
+  if (!bpmnModeler) {
+    ElMessage.warning('画布未初始化，无法撤销')
+    return
+  }
+  const commandStack = bpmnModeler.get('commandStack')
+  if (commandStack.canUndo()) {
+    commandStack.undo()
+    ElMessage.success('✅ 已撤销上一步操作')
+  } else {
+    ElMessage.info('⚠️ 没有可撤销的操作')
+  }
+}
+
+const handleRedo = () => {
+  if (!bpmnModeler) {
+    ElMessage.warning('画布未初始化，无法重做')
+    return
+  }
+  const commandStack = bpmnModeler.get('commandStack')
+  if (commandStack.canRedo()) {
+    commandStack.redo()
+    ElMessage.success('✅ 已重做上一步操作')
+  } else {
+    ElMessage.info('⚠️ 没有可重做的操作')
   }
 }
 
@@ -714,18 +798,29 @@ const handleSavePlan = async () => {
     const planStepRelations = []
     if (bpmnModeler) {
       const elementRegistry = bpmnModeler.get('elementRegistry')
-      const taskNodes = elementRegistry.filter(
-        (el) => el.type === 'bpmn:UserTask' && el.businessObject['flowable:stepId'],
-      )
-      taskNodes.forEach((node) => {
-        planStepRelations.push({
-          planId: planForm.id,
-          stepId: node.businessObject['flowable:stepId'],
-          stepType: node.businessObject['flowable:stepType'],
-          flowNodeId: node.id,
-        })
+      // 获取所有UserTask节点
+      const allTaskNodes = elementRegistry.filter((el) => el.type === 'bpmn:UserTask')
+      console.log('所有UserTask节点：', allTaskNodes) // 调试：看有多少个任务节点
+
+      allTaskNodes.forEach((node) => {
+        //从properties里取stepId（兜底再看flowable属性）
+        const stepId = node.properties?.stepId || node.businessObject?.['flowable:stepId']
+        const stepType = node.properties?.stepType || node.businessObject?.['flowable:stepType']
+
+        console.log(`节点${node.id}的stepId：`, stepId)
+
+        // 只要有stepId就加入关联列表
+        if (stepId) {
+          planStepRelations.push({
+            planId: planForm.id,
+            stepId: stepId,
+            stepType: stepType || '',
+            flowNodeId: node.id,
+          })
+        }
       })
     }
+    console.log('最终planStepRelations：', planStepRelations) // 调试：确认非空
 
     if (!planForm.id) {
       planForm.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
