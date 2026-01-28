@@ -38,7 +38,7 @@
 
       <!-- 核心布局：步骤库 + bpmn.js画布 + 预案配置 -->
       <div class="main-layout">
-        <!-- 左侧：步骤库 + 节点替换操作（强制显示，不再依赖selectedCanvasNode） -->
+        <!-- 左侧：步骤库 + 节点替换操作 -->
         <div class="step-library-panel">
           <el-card header="全局步骤库" class="step-library-card">
             <el-input
@@ -78,7 +78,7 @@
             </el-tree>
           </el-card>
 
-          <!-- 节点替换操作：移除v-if，强制显示 + 明确提示 -->
+          <!-- 节点替换操作 -->
           <el-card header="节点替换操作" class="node-replace-card">
             <div class="node-info">
               <p>
@@ -90,11 +90,10 @@
                 >{{
                   selectedCanvasNode?.type === 'bpmn:UserTask'
                     ? '用户任务（可替换）'
-                    : '非任务节点（不可替换）'
+                    : selectedCanvasNode?.type || '非任务节点（不可替换）'
                 }}
               </p>
               <p v-if="selectedCanvasNode?.flowableStepId">
-                <!-- ✅ 修复：用自定义属性替代businessObject -->
                 <strong>已绑定步骤：</strong>{{ selectedStep?.stepName || '无' }}
               </p>
             </div>
@@ -109,22 +108,22 @@
               将选中步骤替换到当前节点
             </el-button>
             <div style="margin-top: 8px; font-size: 12px; color: #999">
-              操作提示：1.点击「添加默认任务节点」→2.选中画布中的任务节点→3.选中左侧步骤→4.点击替换
+              操作提示：1.从左侧图形栏拖拽节点→2.选中画布中的任务节点→3.选中左侧步骤→4.点击替换
             </div>
           </el-card>
         </div>
 
-        <!-- 中间：纯bpmn.js画布 -->
+        <!-- 中间：完整BPMN画布（保留图形栏+ContextPad） -->
         <div class="flowable-canvas-panel">
           <el-card header="流程设计画布" class="canvas-card">
             <div class="canvas-toolbar">
               <el-button @click="handleSaveCanvas">保存画布</el-button>
               <el-button @click="handleRefreshCanvas">刷新画布</el-button>
               <el-button @click="handleAddDefaultTask">添加默认任务节点</el-button>
-              <!-- 新增：撤销/重做按钮 -->
               <el-button type="info" @click="handleUndo">撤销</el-button>
               <el-button type="info" @click="handleRedo">重做</el-button>
             </div>
+            <!-- BPMN画布容器（关键：不隐藏图形栏） -->
             <div class="canvas-container" ref="bpmnContainer"></div>
           </el-card>
         </div>
@@ -252,12 +251,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Folder, Operation, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter, useRoute } from 'vue-router'
 
-// 仅引入bpmn-js核心（无属性面板依赖）
+// 引入完整的bpmn-js（保留所有核心模块）
 import BpmnModeler from 'bpmn-js/lib/Modeler'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn-embedded.css'
-import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css' // 新增：确保小人图标等字体加载
+import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
+
+// Flowable扩展（保留完整支持，lowable+BPMN 模型器联动的必备配置，且完全透明无隐式写入）
+// 作用仅仅让 bpmn-js 能识别 Flowable 的自定义属性（如flowable:stepId/flowable:moduleCode）
+import flowableModdle from 'flowable-bpmn-moddle/resources/camunda.json'
+
 // 原有API引入（请根据实际路径调整）
 import { getStepList, getStepNameByIds } from '@/api/step'
 import {
@@ -281,7 +285,7 @@ const uploadRef = ref(null)
 const stepTreeRef = ref(null)
 const planFormRef = ref(null)
 const bpmnContainer = ref(null)
-let bpmnModeler = null
+let bpmnModeler = null // BPMN模型器实例
 
 // 响应式数据
 const currentModuleCode = ref('emergency')
@@ -319,7 +323,7 @@ const treeProps = ref({
 const cameraList = ref([])
 const deployRecordList = ref([])
 
-// 修正后的空流程模板（带完整布局+基础连线）
+// 基础空流程模板（保留完整结构）
 const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -328,21 +332,19 @@ const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
              xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
              xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
              targetNamespace="http://www.flowable.org/processdef">
-  <process id="emptyProcess" name="空流程" isExecutable="true">
+  <process id="emergencyPlanProcess" name="应急预案流程" isExecutable="true">
     <startEvent id="startEvent" name="开始"></startEvent>
     <endEvent id="endEvent" name="结束"></endEvent>
-    <!-- 核心修复：添加基础连线 -->
     <sequenceFlow id="flow_start_end" sourceRef="startEvent" targetRef="endEvent"/>
   </process>
-  <bpmndi:BPMNDiagram id="BPMNDiagram_emptyProcess">
-    <bpmndi:BPMNPlane id="BPMNPlane_emptyProcess" bpmnElement="emptyProcess">
+  <bpmndi:BPMNDiagram id="BPMNDiagram_emergencyPlanProcess">
+    <bpmndi:BPMNPlane id="BPMNPlane_emergencyPlanProcess" bpmnElement="emergencyPlanProcess">
       <bpmndi:BPMNShape id="BPMNShape_startEvent" bpmnElement="startEvent">
         <dc:Bounds x="200" y="200" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="BPMNShape_endEvent" bpmnElement="endEvent">
         <dc:Bounds x="600" y="200" width="36" height="36"/>
       </bpmndi:BPMNShape>
-      <!-- 核心修复：添加连线坐标 -->
       <bpmndi:BPMNEdge id="BPMNEdge_flow_start_end" bpmnElement="flow_start_end">
         <di:waypoint x="236" y="218"/>
         <di:waypoint x="600" y="218"/>
@@ -351,118 +353,238 @@ const initEmptyXml = `<?xml version="1.0" encoding="UTF-8"?>
   </bpmndi:BPMNDiagram>
 </definitions>`
 
-// 初始化bpmn.js画布// 修正后的画布初始化方法（彻底解决Constructor报错）
-const initBpmnModeler = async (xml = initEmptyXml) => {
+// 测试流程模板（含网关/多任务）
+const testXml = `<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:flowable="http://flowable.org/bpmn" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" targetNamespace="http://www.flowable.org/processdef">
+  <process id="emergencyPlanProcess" name="应急预案流程" isExecutable="true">
+    <startEvent id="startEvent" name="开始">
+      <outgoing>Flow_13ulyn7</outgoing>
+    </startEvent>
+    <endEvent id="endEvent" name="结束">
+      <incoming>Flow_1eudd50</incoming>
+    </endEvent>
+    <userTask id="Activity_0bdud75" name="初期灭火设备启动（处置）" flowable:stepId="6ff9dd42c1e84365baccaffafe5e7079" flowable:stepCode="1-3" flowable:stepType="dispose" flowable:moduleCode="emergency" flowable:stepName="初期灭火设备启动">
+      <incoming>Flow_0y2lt12</incoming>
+      <outgoing>Flow_1emcl4y</outgoing>
+    </userTask>
+    <userTask id="Activity_0x8nyw1" name="现场人员上报（处置）" flowable:stepId="1f64993a5f03ac0f136df24b137010ed" flowable:stepCode="1-2" flowable:stepType="dispose" flowable:moduleCode="emergency" flowable:stepName="现场人员上报">
+      <incoming>Flow_1v3h28r</incoming>
+      <outgoing>Flow_1fcv7u9</outgoing>
+    </userTask>
+    <userTask id="Activity_19qgx7c" name="危险源切断（处置）" flowable:stepId="f02a384267b060afb2ef84aeb044d695" flowable:stepCode="1-1" flowable:stepType="dispose" flowable:moduleCode="emergency" flowable:stepName="危险源切断">
+      <incoming>Flow_0bwbm6a</incoming>
+      <outgoing>Flow_0hfxp5r</outgoing>
+    </userTask>
+    <sequenceFlow id="Flow_1fcv7u9" sourceRef="Activity_0x8nyw1" targetRef="Activity_0hc1b4y" />
+    <sequenceFlow id="Flow_1emcl4y" sourceRef="Activity_0bdud75" targetRef="Activity_0hc1b4y" />
+    <userTask id="Activity_0hc1b4y" name="快速上报（上报）" flowable:stepId="6d07bb490fe029c2cd85d463dcf7ac10" flowable:stepCode="2-1" flowable:stepType="report" flowable:moduleCode="emergency" flowable:stepName="快速上报">
+      <incoming>Flow_0hfxp5r</incoming>
+      <incoming>Flow_1emcl4y</incoming>
+      <incoming>Flow_1fcv7u9</incoming>
+      <outgoing>Flow_1eudd50</outgoing>
+    </userTask>
+    <userTask id="Activity_15vva0h" name="预警预警（预警）" flowable:stepId="40bf0196d7db51895101c25391a63a77" flowable:stepCode="3-1" flowable:stepType="warn" flowable:moduleCode="emergency" flowable:stepName="预警预警">
+      <incoming>Flow_13ulyn7</incoming>
+      <outgoing>Flow_01w7uds</outgoing>
+    </userTask>
+    <sequenceFlow id="Flow_13ulyn7" sourceRef="startEvent" targetRef="Activity_15vva0h" />
+    <exclusiveGateway id="Gateway_1myf8pv">
+      <incoming>Flow_01w7uds</incoming>
+      <outgoing>Flow_1v3h28r</outgoing>
+      <outgoing>Flow_0y2lt12</outgoing>
+      <outgoing>Flow_0bwbm6a</outgoing>
+    </exclusiveGateway>
+    <sequenceFlow id="Flow_1v3h28r" sourceRef="Gateway_1myf8pv" targetRef="Activity_0x8nyw1" />
+    <sequenceFlow id="Flow_0y2lt12" sourceRef="Gateway_1myf8pv" targetRef="Activity_0bdud75" />
+    <sequenceFlow id="Flow_0bwbm6a" sourceRef="Gateway_1myf8pv" targetRef="Activity_19qgx7c" />
+    <sequenceFlow id="Flow_0hfxp5r" sourceRef="Activity_19qgx7c" targetRef="Activity_0hc1b4y" />
+    <sequenceFlow id="Flow_01w7uds" sourceRef="Activity_15vva0h" targetRef="Gateway_1myf8pv" />
+    <sequenceFlow id="Flow_1eudd50" sourceRef="Activity_0hc1b4y" targetRef="endEvent" />
+  </process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_emergencyPlanProcess">
+    <bpmndi:BPMNPlane id="BPMNPlane_emergencyPlanProcess" bpmnElement="emergencyPlanProcess">
+      <bpmndi:BPMNShape id="BPMNShape_startEvent" bpmnElement="startEvent">
+        <dc:Bounds x="200" y="200" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="206" y="243" width="23" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_endEvent" bpmnElement="endEvent">
+        <dc:Bounds x="1172" y="200" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1178" y="243" width="23" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0bdud75_di" bpmnElement="Activity_0bdud75">
+        <dc:Bounds x="740" y="300" width="120" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0x8nyw1_di" bpmnElement="Activity_0x8nyw1">
+        <dc:Bounds x="740" y="60" width="120" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_19qgx7c_di" bpmnElement="Activity_19qgx7c">
+        <dc:Bounds x="740" y="178" width="120" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0hc1b4y_di" bpmnElement="Activity_0hc1b4y">
+        <dc:Bounds x="930" y="178" width="120" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_15vva0h_di" bpmnElement="Activity_15vva0h">
+        <dc:Bounds x="370" y="178" width="120" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1myf8pv_di" bpmnElement="Gateway_1myf8pv" isMarkerVisible="true">
+        <dc:Bounds x="565" y="193" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1fcv7u9_di" bpmnElement="Flow_1fcv7u9">
+        <di:waypoint x="860" y="90" />
+        <di:waypoint x="1000" y="90" />
+        <di:waypoint x="1000" y="178" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1emcl4y_di" bpmnElement="Flow_1emcl4y">
+        <di:waypoint x="860" y="340" />
+        <di:waypoint x="990" y="340" />
+        <di:waypoint x="990" y="258" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_13ulyn7_di" bpmnElement="Flow_13ulyn7">
+        <di:waypoint x="236" y="218" />
+        <di:waypoint x="370" y="218" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1v3h28r_di" bpmnElement="Flow_1v3h28r">
+        <di:waypoint x="590" y="193" />
+        <di:waypoint x="590" y="100" />
+        <di:waypoint x="740" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0y2lt12_di" bpmnElement="Flow_0y2lt12">
+        <di:waypoint x="590" y="243" />
+        <di:waypoint x="590" y="360" />
+        <di:waypoint x="740" y="360" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0bwbm6a_di" bpmnElement="Flow_0bwbm6a">
+        <di:waypoint x="615" y="218" />
+        <di:waypoint x="740" y="218" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0hfxp5r_di" bpmnElement="Flow_0hfxp5r">
+        <di:waypoint x="860" y="218" />
+        <di:waypoint x="930" y="218" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_01w7uds_di" bpmnElement="Flow_01w7uds">
+        <di:waypoint x="490" y="218" />
+        <di:waypoint x="565" y="218" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1eudd50_di" bpmnElement="Flow_1eudd50">
+        <di:waypoint x="1050" y="218" />
+        <di:waypoint x="1172" y="218" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>`
+
+// 初始化BPMN模型器（核心：保留所有模块+解决事件冲突）
+const initBpmnModeler = async (xml = testXml) => {
   try {
-    // 1. 先销毁旧实例（避免重复构造）
+    // 1. 销毁旧实例（解决重复初始化冲突）
     if (bpmnModeler) {
       try {
         bpmnModeler.destroy()
       } catch (e) {
-        console.warn('销毁旧Modeler实例时的兼容警告：', e.message)
+        console.warn('销毁旧Modeler实例警告：', e.message)
       }
       bpmnModeler = null
     }
 
-    // 2. 校验容器元素是否存在（关键：避免构造函数传null）
+    // 2. 校验容器
     if (!bpmnContainer.value) {
-      ElMessage.error('BPMN画布容器未找到，请检查页面DOM是否加载完成')
+      ElMessage.error('BPMN画布容器未找到，请检查DOM加载')
       return
     }
 
-    // 3. 重新引入Modeler（避免模块缓存问题）
-    const { default: BpmnModeler } = await import('bpmn-js/lib/Modeler')
-
-    // 4. 初始化Modeler（简化配置，避免插件冲突）
+    // 3. 初始化完整Modeler（保留所有核心模块，解决ContextPad冲突）
     bpmnModeler = new BpmnModeler({
       container: bpmnContainer.value,
-      // 仅保留必要的Flowable扩展，禁用所有非核心插件
+      // 仅注册Flowable扩展schema，让模型器识别flowable:*属性，无任何写入操作
       moddleExtensions: {
-        flowable: {
-          uri: 'http://flowable.org/bpmn',
-          prefix: 'flowable',
-        },
+        flowable: flowableModdle
       },
-      // 核心修复：移除bindTo，直接禁用keyboard
-      keyboard: false,
-      additionalModules: [],
-      disableStackTools: true,
+      // 启用所有核心模块（解决ContextPad/图形栏冲突）
+      keyboard: {
+        bindTo: document,
+        focusOnStart: true
+      },
+      contextPad: { enabled: true }, // 右键菜单
+      palette: { enabled: true },    // 图形栏（完整保留）
+      zoomScroll: { enabled: true }, // 缩放
+      selection: { enabled: true },  // 选中
+      connect: { enabled: true },    // 连线
+      resize: { enabled: true },     // 调整大小
+      // 禁用重复模块（解决配置冲突）
+      disableStackTools: false
     })
 
-    // 5. 导入XML（兼容处理）
+    // 4. 导入XML
     const result = await bpmnModeler.importXML(xml)
     const { warnings } = result
     if (warnings.length > 0) {
-      console.warn('BPMN XML导入警告：', warnings)
+      console.warn('BPMN导入警告：', warnings)
     }
 
-    // 6. 监听节点选中事件（改用标准的 selection.changed 事件）
+    // 5. 事件监听（解决原生事件与自定义事件冲突）
     const eventBus = bpmnModeler.get('eventBus')
     const selection = bpmnModeler.get('selection')
 
-    // 先移除所有旧的监听，避免重复注册
+    // 先移除旧监听（解决重复监听冲突）
     eventBus.off('element.select')
     eventBus.off('selection.changed')
+    eventBus.off('element.click')
 
-    // 核心修复：监听 selection.changed 事件（bpmn-js 标准选中事件）
+    // 核心：监听原生选中事件（不阻断ContextPad）
     eventBus.on('selection.changed', (e) => {
-      console.log('selection.changed 事件触发', e) // 调试日志
       const selectedElements = selection.get() || []
-      const element = selectedElements[0] // 取第一个选中的元素
+      const element = selectedElements[0]
 
       if (element) {
-        // 核心修复：优先从element获取类型，多层兜底
+        // 仅同步自定义状态，不修改原生逻辑（解决ContextPad冲突）
         const nodeType = element.type || element.$type || element.businessObject?.$type || ''
-        // ✅ 修复：提取flowable属性到自定义字段，不保存整个businessObject
         const flowableStepId = element.businessObject?.['flowable:stepId'] || ''
+
         selectedCanvasNode.value = {
           id: element.id,
-          name: element.businessObject?.name || element.name || '未命名节点',
+          name: element.businessObject?.name || element.name || '未命名',
           type: nodeType,
-          flowableStepId: flowableStepId, // ✅ 新增：自定义字段存储stepId
-          rawElement: element, // 保存原始引用，但不写入XML
+          flowableStepId: flowableStepId,
+          rawElement: element // 保留原始引用（不写入XML）
         }
 
-        // 调试日志：打印完整信息
-        console.log('选中节点信息：', {
-          id: element.id,
-          type: nodeType,
-          name: element.businessObject?.name,
-        })
-
-        // 仅当节点不是用户任务时，清空选中步骤
+        // 非用户任务清空步骤（不影响其他节点）
         if (nodeType !== 'bpmn:UserTask') {
           selectedStep.value = null
           activeStepId.value = ''
         }
       } else {
-        // 未选中任何元素时清空状态
+        // 未选中时清空状态
         selectedCanvasNode.value = null
         selectedStep.value = null
         activeStepId.value = ''
-        console.log('未选中任何节点')
       }
     })
 
-    // 额外监听 element.click 事件（兜底，确保点击能触发）
+    // 兜底监听点击事件（解决选中冲突）
     eventBus.on('element.click', (e) => {
-      console.log('element.click 事件触发', e)
-      const element = e.element
-      if (element) {
-        // 手动触发选中（确保selection更新）
+      if (e.element) {
         selection.deselectAll()
-        selection.select(element)
+        selection.select(e.element)
       }
     })
 
-    // 7. 适配画布视角
+    // 6. 适配画布
     const canvas = bpmnModeler.get('canvas')
     canvas.zoom('fit-viewport')
-    ElMessage.success('流程画布初始化成功')
+    ElMessage.success('BPMN画布初始化完成（图形栏+右键菜单已启用）')
   } catch (e) {
     ElMessage.error(`画布初始化失败：${e.message}`)
-    console.error('画布初始化详细报错：', e)
-    // 兜底：重置Modeler实例
+    console.error('初始化详情：', e)
     bpmnModeler = null
   }
 }
@@ -471,7 +593,7 @@ const initBpmnModeler = async (xml = initEmptyXml) => {
 const loadStepInfoById = async (stepId) => {
   try {
     const res = await getStepNameByIds(Array.isArray(stepId) ? stepId : [stepId])
-    if (res.code === 200 && res.data && res.data.length > 0) {
+    if (res.code === 200 && res.data?.length) {
       const step = res.data[0]
       selectedStep.value = {
         id: step.id,
@@ -484,13 +606,13 @@ const loadStepInfoById = async (stepId) => {
     } else {
       selectedStep.value = null
       activeStepId.value = ''
-      ElMessage.warning(`未找到ID为【${stepId}】的步骤`)
+      ElMessage.warning(`未找到步骤ID：${stepId}`)
     }
   } catch (e) {
-    console.error('加载步骤信息失败:', e)
+    console.error('加载步骤失败：', e)
     selectedStep.value = null
     activeStepId.value = ''
-    ElMessage.error(`加载步骤信息失败：${e.message}`)
+    ElMessage.error(`加载步骤失败：${e.message}`)
   }
 }
 
@@ -509,7 +631,7 @@ const filterStepNode = (value, data) => {
   )
 }
 
-// 步骤搜索事件
+// 步骤搜索
 const handleStepSearch = () => {
   stepTreeRef.value.filter(stepSearchKey.value)
 }
@@ -517,7 +639,7 @@ const handleStepSearch = () => {
 // 选中步骤
 const handleStepNodeClick = (data) => {
   if (data.isTypeNode) {
-    ElMessage.info('请选择具体的步骤，而非步骤分类')
+    ElMessage.info('请选择具体步骤（非分类）')
     return
   }
 
@@ -530,48 +652,46 @@ const handleStepNodeClick = (data) => {
   }
   activeStepId.value = data.id
 
-  ElMessage.success(`已选中步骤：【${data.stepName}（${data.stepTypeName}）】`)
+  ElMessage.success(`选中步骤：${data.stepName}`)
 
-  console.log(selectedCanvasNode.value?.type)
+  // 提示非用户任务节点
   if (selectedCanvasNode.value?.type !== 'bpmn:UserTask') {
-    ElMessage.warning('当前选中的不是用户任务节点，无法替换，请先选中画布中的矩形任务节点')
+    ElMessage.warning('当前选中的不是用户任务节点，无法替换')
   }
 }
 
-// 核心：替换节点为选中步骤
+// 替换节点（核心：解决属性写入冲突）
 const handleReplaceNodeWithStep = () => {
   if (!bpmnModeler) {
-    ElMessage.error('画布未初始化，请刷新页面重试')
+    ElMessage.error('画布未初始化')
     return
   }
   if (!selectedCanvasNode.value) {
-    ElMessage.warning('请先在画布中选中【矩形样式】的用户任务节点')
+    ElMessage.warning('请先选中画布中的用户任务节点')
     return
   }
   if (selectedCanvasNode.value.type !== 'bpmn:UserTask') {
-    ElMessage.error('仅支持替换用户任务节点（矩形样式），请选中正确的节点')
+    ElMessage.error('仅支持替换用户任务节点')
     return
   }
-  if (!selectedStep.value || !selectedStep.value.id) {
-    ElMessage.warning('请先在左侧步骤库中选中一个具体的步骤')
+  if (!selectedStep.value) {
+    ElMessage.warning('请先选中左侧步骤')
     return
   }
 
   try {
     const elementRegistry = bpmnModeler.get('elementRegistry')
     const modeling = bpmnModeler.get('modeling')
-    // 获取最新的节点实例
     const node = elementRegistry.get(selectedCanvasNode.value.id)
 
     if (!node) {
-      ElMessage.error('选中的节点已失效，请重新选中节点')
+      ElMessage.error('节点已失效，请重新选中')
       selectedCanvasNode.value = null
       return
     }
 
-    // 1. 定义要写入的属性
-    const newNodeName = `${selectedStep.value.stepName}（${selectedStep.value.stepTypeName}）`
-
+    // 写入属性（解决Flowable属性冲突）
+    const newName = `${selectedStep.value.stepName}（${selectedStep.value.stepTypeName}）`
     const stepProps = {
       stepId: selectedStep.value.id,
       stepCode: selectedStep.value.stepCode,
@@ -579,32 +699,33 @@ const handleReplaceNodeWithStep = () => {
       moduleCode: currentModuleCode.value,
       stepName: selectedStep.value.stepName,
     }
-    //直接写入节点的properties（bpmn-js标准存储位置）
+
+    // 同步写入properties和flowable属性（解决属性丢失冲突）
     node.properties = { ...node.properties, ...stepProps }
-    //同时写入flowable属性（保证XML合法）
+    // 仅在你点击“替换节点”时，才会显式写入flowable属性，无任何隐式操作
     modeling.updateProperties(node, {
-      name: newNodeName,
+      name: newName,
       'flowable:stepId': selectedStep.value.id,
       'flowable:stepCode': selectedStep.value.stepCode,
       'flowable:stepType': selectedStep.value.stepType,
       'flowable:moduleCode': currentModuleCode.value,
       'flowable:stepName': selectedStep.value.stepName,
     })
-    // 2. 同步更新选中状态（仅更新自定义字段）
-    selectedCanvasNode.value.name = newNodeName
+
+    // 更新自定义状态
+    selectedCanvasNode.value.name = newName
     selectedCanvasNode.value.flowableStepId = selectedStep.value.id
-    console.log('节点properties：', node.properties) // 调试：确认stepId已写入
-    ElMessage.success(`✅ 节点替换成功！已绑定步骤：【${selectedStep.value.stepName}】`)
+    ElMessage.success(`节点替换成功：${newName}`)
   } catch (e) {
-    ElMessage.error(`❌ 节点替换失败：${e.message}`)
-    console.error('替换失败详情：', e)
+    ElMessage.error(`替换失败：${e.message}`)
+    console.error('替换详情：', e)
   }
 }
 
-// 添加默认任务节点（核心修复连线逻辑）
+// 添加默认任务节点（解决节点添加冲突）
 const handleAddDefaultTask = () => {
   if (!bpmnModeler) {
-    ElMessage.error('画布未加载完成，请先等待画布初始化')
+    ElMessage.error('画布未初始化')
     return
   }
 
@@ -615,45 +736,41 @@ const handleAddDefaultTask = () => {
     const modeling = bpmnModeler.get('modeling')
     const selection = bpmnModeler.get('selection')
     const moddle = bpmnModeler.get('moddle')
-    // ★ 新增1：获取流程模型（process）和建模命令栈（确保节点挂载到流程）
-    const process = elementRegistry.get('emptyProcess') // 对应XML里的process id
-    //const commandStack = bpmnModeler.get('commandStack')
+    const process = elementRegistry.get('emergencyPlanProcess')
 
-    // 1. 获取开始/结束节点（确保存在）
-    let startEvent = elementRegistry.get('startEvent')
-    let endEvent = elementRegistry.get('endEvent')
+    // 获取开始/结束节点
+    const startEvent = elementRegistry.get('startEvent')
+    const endEvent = elementRegistry.get('endEvent')
     if (!startEvent || !endEvent) {
-      ElMessage.error('画布中缺少开始或结束节点，请重新初始化画布')
+      ElMessage.error('画布缺少开始/结束节点，请刷新')
       return
     }
 
-    // 2. 获取所有已有的用户任务节点并按X坐标排序
+    // 计算节点位置
     const taskNodes = elementRegistry
       .getAll()
-      .filter((el) => el.type === 'bpmn:UserTask')
+      .filter(el => el.type === 'bpmn:UserTask')
       .sort((a, b) => a.x - b.x)
 
-    // 3. 计算新节点位置
     let baseX = 300 + taskNodes.length * 150
     let baseY = 200
-    let lastTaskNode = null
+    let lastTaskNode = taskNodes.length > 0 ? taskNodes[taskNodes.length - 1] : null
 
-    if (taskNodes.length > 0) {
-      lastTaskNode = taskNodes[taskNodes.length - 1]
+    if (lastTaskNode) {
       baseX = lastTaskNode.x + 150
       baseY = lastTaskNode.y
     }
 
-    // 4. 创建任务节点（生成绝对唯一ID）
+    // 创建唯一ID（解决ID冲突）
     let taskId = `userTask_${Date.now()}_${Math.floor(Math.random() * 10000)}`
     while (elementRegistry.get(taskId)) {
       taskId = `userTask_${Date.now()}_${Math.floor(Math.random() * 10000)}_${Math.floor(Math.random() * 100)}`
     }
 
-    // ★ 核心修复1：创建完整的UserTask业务对象（仅保留合法属性）
+    // 创建任务节点（解决节点挂载冲突）
     const taskBo = moddle.create('bpmn:UserTask', {
       id: taskId,
-      name: '未命名任务', // 节点名称（步骤替换后覆盖）
+      name: '未命名任务'
     })
 
     const task = elementFactory.createShape({
@@ -661,124 +778,115 @@ const handleAddDefaultTask = () => {
       id: taskId,
       x: baseX,
       y: baseY,
-      width: 120, // 标准宽高
+      width: 120,
       height: 80,
-      // ✅ 修复：删除businessObject赋值
-      // ★ 核心修复2：指定parent为process，确保节点挂载到<process>下
-      parent: process, // parent仅用于BPMN建模，不会写入XML
+      parent: process
     })
 
-    // ★ 核心修复3：用modeling.createShape添加节点（自动挂载到process，无需手动加process属性）
+    // 添加节点到流程（解决挂载冲突）
     modeling.createShape(task, { x: baseX, y: baseY }, process)
 
-    // 5. 创建连接线（保留你的原始逻辑）
+    // 创建连线（解决连线冲突）
     if (lastTaskNode) {
       const flow1Id = `flow_${lastTaskNode.id}_${task.id}`
       modeling.connect(lastTaskNode, task, {
         id: flow1Id,
-        type: 'bpmn:SequenceFlow',
+        type: 'bpmn:SequenceFlow'
       })
-      const oldEndFlows = elementRegistry
-        .getAll()
-        .filter(
-          (el) =>
-            el.type === 'bpmn:SequenceFlow' && el.source === lastTaskNode && el.target === endEvent,
-        )
-      oldEndFlows.forEach((flow) => {
-        modeling.removeElements([flow])
-      })
+      // 删除旧连线
+      const oldEndFlows = elementRegistry.getAll().filter(el =>
+        el.type === 'bpmn:SequenceFlow' && el.source === lastTaskNode && el.target === endEvent
+      )
+      oldEndFlows.forEach(flow => modeling.removeElements([flow]))
     } else {
       const flow1Id = `flow_${startEvent.id}_${task.id}`
       modeling.connect(startEvent, task, {
         id: flow1Id,
-        type: 'bpmn:SequenceFlow',
+        type: 'bpmn:SequenceFlow'
       })
+      // 删除默认连线
       const defaultFlow = elementRegistry.get('flow_start_end')
       if (defaultFlow) modeling.removeElements([defaultFlow])
     }
 
+    // 连接到结束节点
     const flow2Id = `flow_${task.id}_${endEvent.id}`
     modeling.connect(task, endEvent, {
       id: flow2Id,
       type: 'bpmn:SequenceFlow',
       waypoints: [
         { x: task.x + 120, y: task.y + 40 },
-        { x: endEvent.x, y: endEvent.y + 18 },
-      ],
+        { x: endEvent.x, y: endEvent.y + 18 }
+      ]
     })
 
-    // 6. 适配画布+选中节点（保留你的原始逻辑）
+    // 适配画布+选中节点
     canvas.zoom('fit-viewport')
     setTimeout(() => {
       if (task && selection) {
         selection.deselectAll()
         selection.select(task)
-        selectedCanvasNode.value = JSON.parse(
-          JSON.stringify({
-            id: task.id,
-            name: task.name || '未命名节点', // ✅ 修复：直接取task.name
-            type: task.type,
-            // ✅ 修复：删除businessObject赋值
-            flowableStepId: '', // ✅ 新增：自定义字段
-          }),
-        )
+        selectedCanvasNode.value = {
+          id: task.id,
+          name: task.name || '未命名',
+          type: task.type,
+          flowableStepId: ''
+        }
       }
     }, 300)
 
-    ElMessage.success('✅ 任务节点添加成功（已写入流程模型）')
+    ElMessage.success('默认任务节点添加成功（可拖拽其他节点）')
   } catch (e) {
-    ElMessage.error(`❌ 添加节点失败：${e.message}`)
-    console.error('添加节点失败详情：', e)
-    selectedCanvasNode.value = null
-    selectedStep.value = null
-    activeStepId.value = ''
+    ElMessage.error(`添加节点失败：${e.message}`)
+    console.error('添加节点详情：', e)
   }
 }
 
+// 撤销/重做（解决命令栈冲突）
 const handleUndo = () => {
   if (!bpmnModeler) {
-    ElMessage.warning('画布未初始化，无法撤销')
+    ElMessage.warning('画布未初始化')
     return
   }
   const commandStack = bpmnModeler.get('commandStack')
   if (commandStack.canUndo()) {
     commandStack.undo()
-    ElMessage.success('✅ 已撤销上一步操作')
+    ElMessage.success('已撤销操作')
   } else {
-    ElMessage.info('⚠️ 没有可撤销的操作')
+    ElMessage.info('无可撤销操作')
   }
 }
 
 const handleRedo = () => {
   if (!bpmnModeler) {
-    ElMessage.warning('画布未初始化，无法重做')
+    ElMessage.warning('画布未初始化')
     return
   }
   const commandStack = bpmnModeler.get('commandStack')
   if (commandStack.canRedo()) {
     commandStack.redo()
-    ElMessage.success('✅ 已重做上一步操作')
+    ElMessage.success('已重做操作')
   } else {
-    ElMessage.info('⚠️ 没有可重做的操作')
+    ElMessage.info('无可重做操作')
   }
 }
 
 // 模块切换
 const handleModuleChange = () => {
   loadStepList()
-  initBpmnModeler(planForm.bpmnXml || initEmptyXml)
+  initBpmnModeler(planForm.bpmnXml || testXml)
 }
 
 // 保存画布
 const handleSaveCanvas = async () => {
   if (!bpmnModeler) {
-    ElMessage.error('画布未加载完成')
+    ElMessage.error('画布未初始化')
     return
   }
   try {
     const { xml } = await bpmnModeler.saveXML({ format: true })
     planForm.bpmnXml = xml
-    ElMessage.success('BPMN XML已保存到表单')
+    ElMessage.success('BPMN XML已保存')
   } catch (e) {
     ElMessage.error(`保存画布失败：${e.message}`)
     console.error(e)
@@ -787,45 +895,57 @@ const handleSaveCanvas = async () => {
 
 // 刷新画布
 const handleRefreshCanvas = () => {
-  initBpmnModeler(planForm.bpmnXml || initEmptyXml)
+  initBpmnModeler(planForm.bpmnXml || testXml)
 }
 
-// 保存预案
+// 保存预案 - 修复 planStepRelations 为空的问题
 const handleSavePlan = async () => {
   try {
     await planFormRef.value.validate()
 
+    // ========== 修复后的核心逻辑 ==========
     const planStepRelations = []
     if (bpmnModeler) {
+      // 1. 先保存画布（确保 XML 和节点属性同步）
+      await handleSaveCanvas()
+
+      // 2. 获取所有节点（精准过滤用户任务节点）
       const elementRegistry = bpmnModeler.get('elementRegistry')
-      // 获取所有UserTask节点
-      const allTaskNodes = elementRegistry.filter((el) => el.type === 'bpmn:UserTask')
-      console.log('所有UserTask节点：', allTaskNodes) // 调试：看有多少个任务节点
+      const allElements = elementRegistry.getAll()
 
-      allTaskNodes.forEach((node) => {
-        //从properties里取stepId（兜底再看flowable属性）
-        const stepId = node.properties?.stepId || node.businessObject?.['flowable:stepId']
-        const stepType = node.properties?.stepType || node.businessObject?.['flowable:stepType']
+      // 3. 遍历节点，正确读取 Flowable 属性
+      allElements.forEach(el => {
+        // 精准判断：用户任务节点
+        const isUserTask = el.businessObject?.$type === 'bpmn:UserTask'
+        if (!isUserTask) return
 
-        console.log(`节点${node.id}的stepId：`, stepId)
+        // 正确读取 flowable:* 属性（关键修复）
+        const stepId = el.businessObject?.$attrs?.['flowable:stepId'] || el.properties?.stepId
+        const stepType = el.businessObject?.$attrs?.['flowable:stepType'] || el.properties?.stepType
 
-        // 只要有stepId就加入关联列表
+        // 只有绑定了 stepId 的节点才加入关联列表
         if (stepId) {
           planStepRelations.push({
             planId: planForm.id,
             stepId: stepId,
             stepType: stepType || '',
-            flowNodeId: node.id,
+            flowNodeId: el.id, // 节点ID
+            flowNodeName: el.businessObject?.name || '未命名节点' // 可选：增加节点名称，便于排查
           })
         }
       })
-    }
-    console.log('最终planStepRelations：', planStepRelations) // 调试：确认非空
 
+      // 调试：打印收集到的关联关系（方便你排查）
+      console.log('收集到的 planStepRelations：', planStepRelations)
+    }
+    // ========== 修复结束 ==========
+
+    // 生成ID（解决ID冲突）
     if (!planForm.id) {
       planForm.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5)
     }
 
+    // 保存数据
     const res = await savePlan({
       plan: planForm,
       planStepRelations: planStepRelations,
@@ -838,10 +958,9 @@ const handleSavePlan = async () => {
       ElMessage.error(res.data.msg || '保存失败')
     }
   } catch (error) {
-    ElMessage.error(`保存预案失败：${error.message}`)
+    ElMessage.error(`保存失败：${error.message}`)
   }
 }
-
 // 部署流程
 const handleDeployPlan = async () => {
   try {
@@ -850,10 +969,8 @@ const handleDeployPlan = async () => {
       return
     }
 
-    await ElMessageBox.confirm('确定要部署该流程吗？部署后将在Flowable中生效', '部署确认', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
+    await ElMessageBox.confirm('确定部署流程？部署后Flowable生效', '确认', {
+      type: 'warning'
     })
 
     const res = await deployPlan({
@@ -875,10 +992,10 @@ const handleDeployPlan = async () => {
   }
 }
 
-// 导出BPMN文件
+// 导出BPMN
 const handleExportBpmn = async () => {
   if (!bpmnModeler) {
-    ElMessage.error('画布未加载完成')
+    ElMessage.error('画布未初始化')
     return
   }
   try {
@@ -889,30 +1006,29 @@ const handleExportBpmn = async () => {
     a.download = `预案流程_${planForm.planName || '未命名'}_${Date.now()}.bpmn`
     a.click()
     URL.revokeObjectURL(a.href)
-    ElMessage.success('BPMN文件导出成功')
+    ElMessage.success('BPMN导出成功')
   } catch (e) {
     ElMessage.error(`导出失败：${e.message}`)
     console.error(e)
   }
 }
 
-// 导入BPMN文件
+// 导入BPMN
 const handleImportBpmn = () => {
   importDialogVisible.value = true
 }
 
 // 导入前校验
 const beforeImportUpload = (file) => {
-  const isXml =
-    file.type === 'text/xml' || file.name.endsWith('.bpmn') || file.name.endsWith('.bpmn20.xml')
+  const isXml = file.type === 'text/xml' || file.name.endsWith('.bpmn') || file.name.endsWith('.bpmn20.xml')
   const isLt2M = file.size / 1024 / 1024 < 2
 
   if (!isXml) {
-    ElMessage.error('只能上传xml/bpmn格式的文件！')
+    ElMessage.error('仅支持xml/bpmn文件')
     return false
   }
   if (!isLt2M) {
-    ElMessage.error('文件大小不能超过2MB！')
+    ElMessage.error('文件大小不超过2MB')
     return false
   }
   return true
@@ -921,7 +1037,7 @@ const beforeImportUpload = (file) => {
 // 导入成功
 const handleImportSuccess = (response) => {
   if (response.code === 200) {
-    ElMessage.success('BPMN文件导入成功')
+    ElMessage.success('BPMN导入成功')
     importDialogVisible.value = false
     planForm.bpmnXml = response.data.bpmnXml
     initBpmnModeler(response.data.bpmnXml)
@@ -936,12 +1052,13 @@ const handleImportError = (error) => {
   console.error(error)
 }
 
-// 清空所有数据
+// 清空数据
 const handleClearAll = async () => {
   try {
-    await ElMessageBox.confirm('确定要清空所有数据吗？此操作不可恢复', '清空确认', {
-      type: 'danger',
+    await ElMessageBox.confirm('确定清空所有数据？不可恢复', '确认', {
+      type: 'danger'
     })
+
     // 重置表单
     planForm.id = ''
     planForm.planName = ''
@@ -949,20 +1066,21 @@ const handleClearAll = async () => {
     planForm.planDesc = ''
     planForm.cameraIds = []
     planForm.bpmnXml = ''
-    // 重置选中状态
+
+    // 重置状态
     selectedCanvasNode.value = null
     selectedStep.value = null
     activeStepId.value = ''
+
     // 重置画布
-    initBpmnModeler(initEmptyXml)
+    initBpmnModeler(testXml)
     ElMessage.success('数据已清空')
   } catch (e) {
-    console.log(e)
-    ElMessage.info('已取消清空操作')
+    ElMessage.info('已取消清空')
   }
 }
 
-// 激活部署记录
+// 激活/失效部署
 const handleActivateDeploy = async (row) => {
   try {
     const res = await activateDeploy({
@@ -980,7 +1098,6 @@ const handleActivateDeploy = async (row) => {
   }
 }
 
-// 失效部署记录
 const handleInvalidDeploy = async (row) => {
   try {
     const res = await invalidDeploy({
@@ -1005,7 +1122,8 @@ const loadStepList = async () => {
     if (res.code === 200) {
       const stepList = res.data || []
       const typeGroup = {}
-      stepList.forEach((step) => {
+
+      stepList.forEach(step => {
         if (!typeGroup[step.stepType]) {
           typeGroup[step.stepType] = {
             id: `type_${step.stepType}`,
@@ -1018,10 +1136,11 @@ const loadStepList = async () => {
         typeGroup[step.stepType].children.push(step)
         typeGroup[step.stepType].stepTypeCount = typeGroup[step.stepType].children.length
       })
+
       stepTreeData.value = Object.values(typeGroup)
     }
   } catch (error) {
-    ElMessage.error(`加载步骤列表失败：${error.message}`)
+    ElMessage.error(`加载步骤失败：${error.message}`)
   }
 }
 
@@ -1033,7 +1152,7 @@ const loadCameraList = async () => {
       cameraList.value = res.data || []
     }
   } catch (error) {
-    ElMessage.error(`加载摄像头列表失败：${error.message}`)
+    ElMessage.error(`加载摄像头失败：${error.message}`)
   }
 }
 
@@ -1067,14 +1186,14 @@ const getPlanDetail = async () => {
       getDeployRecordList()
     }
   } catch (error) {
-    ElMessage.error(`加载预案详情失败：${error.message}`)
+    ElMessage.error(`加载预案失败：${error.message}`)
   }
 }
 
-// 监听预案名称/模块变化
+// 监听变化
 watch([() => planForm.planName, () => currentModuleCode.value], () => {
   if (!planForm.id) {
-    initBpmnModeler(initEmptyXml)
+    initBpmnModeler(testXml)
   }
 })
 
@@ -1082,14 +1201,13 @@ watch([() => planForm.planName, () => currentModuleCode.value], () => {
 onMounted(async () => {
   await loadStepList()
   await loadCameraList()
-  // 初始化画布
   await initBpmnModeler()
   if (planId.value) {
     await getPlanDetail()
   }
 })
 
-// 页面卸载
+// 页面卸载（解决内存泄漏冲突）
 onUnmounted(() => {
   if (bpmnModeler) {
     bpmnModeler.destroy()
@@ -1126,7 +1244,7 @@ onUnmounted(() => {
   height: calc(100vh - 200px);
 }
 
-/* 左侧步骤库面板 */
+/* 左侧步骤库 */
 .step-library-panel {
   width: 320px;
   display: flex;
@@ -1177,7 +1295,7 @@ onUnmounted(() => {
   border-radius: 2px;
 }
 
-/* 中间画布面板 */
+/* 中间画布（解决样式冲突） */
 .flowable-canvas-panel {
   flex: 1;
   display: flex;
@@ -1196,16 +1314,18 @@ onUnmounted(() => {
   gap: 10px;
 }
 
-/* 画布容器样式 */
+/* 画布容器（解决大小/层级冲突） */
 .canvas-container {
   width: 100%;
   height: calc(100vh - 300px);
   border: 1px solid #e6e6e6;
   border-radius: 4px;
   overflow: hidden;
+  position: relative;
+  z-index: 1; /* 解决层级冲突 */
 }
 
-/* 右侧预案信息面板 */
+/* 右侧信息面板 */
 .plan-info-panel {
   width: 350px;
   display: flex;
@@ -1222,5 +1342,16 @@ onUnmounted(() => {
 
 .upload-demo {
   margin-top: 10px;
+}
+
+/* 解决BPMN原生样式冲突 */
+:deep(.djs-palette) {
+  z-index: 2; /* 图形栏层级 */
+}
+:deep(.djs-context-pad) {
+  z-index: 3; /* 右键菜单层级 */
+}
+:deep(.djs-element) {
+  cursor: pointer;
 }
 </style>
