@@ -184,10 +184,8 @@ const initBpmnModeler = async (xml = initBpmnXml) => {
       bpmnModeler.destroy()
     }
 
-    // 关键修复1：移除keyboard.bindTo，使用最简配置（自动加载全量元素）
     bpmnModeler = new BpmnModeler({
       container: bpmnContainer.value,
-      // 启用所有默认功能（包括全量工具栏）
       moddleExtensions: {
         flowable: {
           uri: 'http://flowable.org/bpmn',

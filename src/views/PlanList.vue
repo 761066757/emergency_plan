@@ -23,8 +23,8 @@
         <el-table-column label="操作">
           <template #default="scope">
             <el-button type="text" @click="viewPlan(scope.row)">查看</el-button>
-            <el-button type="text" @click="deployPlan(scope.row.id)">部署</el-button>
-            <el-button type="text" @click="startPlan(scope.row.id)">启动</el-button>
+            <el-button type="text" @click="deployPlan(scope.row.planId)">部署</el-button>
+            <el-button type="text" @click="startPlan(scope.row.planId)">启动</el-button>
             <el-button
               type="text"
               danger
@@ -62,25 +62,31 @@
           </el-descriptions>
         </el-tab-pane>
         <el-tab-pane label="流程执行" name="view-process">
-          <!-- 1. 已启动：显示任务列表 -->
-          <div v-if="currentPlan.processInstId">
+          <!-- 1. 已启动预案：显示任务列表 + 流程状态提示 -->
+          <div v-if="currentPlan.procInstId">
             <el-alert title="当前预案已启动，正在执行中" type="info" :closable="false"></el-alert>
-            <el-card style="margin-top: 20px">
+            <el-card style="margin-top: 20px; margin-bottom: 20px">
               <el-table :data="taskList" border>
-                <el-table-column prop="name" label="当前步骤"></el-table-column>
-                <el-table-column prop="createTime" label="创建时间"></el-table-column>
+                <el-table-column prop="taskName" label="当前步骤"></el-table-column>
+                <!-- <el-table-column prop="createTime" label="创建时间"></el-table-column> -->
                 <el-table-column label="操作">
                   <template #default="scope">
-                    <el-button type="primary" @click="completeStep(scope.row.id)"
-                      >完成步骤</el-button
-                    >
+                    <el-button
+                      type="primary"
+                      @click="completeStep(scope.row.taskId)"
+                      :loading="completing"
+                      :disabled="completing"
+                      >
+                      完成步骤
+                    </el-button>
                     <el-button @click="viewCamera(currentPlan)">查看监控</el-button>
                   </template>
                 </el-table-column>
               </el-table>
             </el-card>
           </div>
-          <!-- 2. 未启动：显示BPMN流程预览 + 启动按钮 -->
+
+          <!-- 2. 未启动预案：显示流程状态提示 + 启动按钮 -->
           <div v-else>
             <el-alert
               title="该预案尚未启动，以下是流程模板预览"
@@ -88,20 +94,23 @@
               :closable="false"
               style="margin-bottom: 20px"
             ></el-alert>
-            <!-- BPMN流程渲染容器 - 用v-show保持DOM存在 -->
+            <!-- 快捷启动按钮 -->
+            <el-button type="primary" style="margin-top: 20px; margin-bottom: 20px" @click="startPlan(currentPlan.planId)">
+              启动该预案流程
+            </el-button>
+          </div>
+
+          <!-- 3. 统一显示 BPMN 流程图（无论是否启动，DOM 始终存在） -->
+          <div>
+            <!-- BPMN流程渲染容器（始终渲染，不再受 v-if/v-else 控制） -->
             <div
               ref="bpmnContainerRef"
               class="bpmn-container"
               style="width: 100%; height: 500px; border: 1px solid #e6e6e6"
-              v-show="bpmnXml"
             ></div>
-            <div v-show="!bpmnXml" class="text-gray" style="text-align: center; padding: 20px">
+            <div v-if="!bpmnXml" class="text-gray" style="text-align: center; padding: 20px">
               该预案未配置流程模板
             </div>
-            <!-- 快捷启动按钮 -->
-            <el-button type="primary" style="margin-top: 20px" @click="startPlan(currentPlan.id)">
-              启动该预案流程
-            </el-button>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -125,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios, { toFormData } from 'axios'
 
@@ -152,8 +161,10 @@ const bpmnXml = ref('')
 const bpmnContainerRef = ref(null)
 //let bpmnModeler = null
 let bpmnViewer = null // 变量名同步改为bpmnViewer，语义更贴合
-let needRenderBpmn = ref(false)
-const planType = {}
+//let needRenderBpmn = ref(false)
+let planType = ref('')
+// 新增：存储当前高亮的BPMN元素ID，方便后续清除旧高亮
+const currentHighlightedElementIds = ref([])
 
 // 获取摄像头列表
 const getCameraList = async () => {
@@ -193,20 +204,16 @@ const getCameraNames = (cameraIdsStr) => {
 const viewPlan = async (plan) => {
   currentPlan.value = plan
   viewDialogVisible.value = true
-  needRenderBpmn.value = false
-
-  if (plan.processInstId) {
-    await getTaskList(plan.processInstId)
-  } else {
-    await loadBpmnXml(plan.id)
-    needRenderBpmn.value = true
-  }
+  // 加载BPMN XML（无论是否启动，都加载）
+  await loadBpmnXml(plan.planId)
+  // 查询当前任务（无论是否启动，都查询）
+  await getCurrentTask(plan.planId)
 }
 
 // 弹窗打开后的回调
 const onDialogOpened = async () => {
   await nextTick()
-  if (needRenderBpmn.value && viewActiveTab.value === 'view-process' && bpmnXml.value) {
+  if (viewActiveTab.value === 'view-process' && bpmnXml.value) {
     renderBpmnDiagram()
   }
 }
@@ -214,7 +221,7 @@ const onDialogOpened = async () => {
 // 监听标签页切换
 const handleTabChange = async (tabName) => {
   await nextTick()
-  if (tabName === 'view-process' && needRenderBpmn.value && bpmnXml.value) {
+  if (tabName === 'view-process' && bpmnXml.value) {
     renderBpmnDiagram()
   }
 }
@@ -249,7 +256,6 @@ const loadBpmnXml = async (planId) => {
 // 渲染BPMN流程图（核心修复：移除废弃的keyboard配置 + XML格式清理）
 const renderBpmnDiagram = async (retryCount = 0) => {
   console.log('开始渲染BPMN流程图，重试次数:', retryCount)
-
   // 销毁旧实例
   if (bpmnViewer) {
     bpmnViewer.destroy()
@@ -260,21 +266,16 @@ const renderBpmnDiagram = async (retryCount = 0) => {
 
   // 获取容器
   const container = bpmnContainerRef.value
-  console.log('BPMN容器元素:', container)
-
   if (!container) {
     if (retryCount < 3) {
-      console.warn('BPMN容器未找到，将重试...')
       setTimeout(() => renderBpmnDiagram(retryCount + 1), 300)
       return
     }
-    console.error('BPMN容器未找到（重试次数已用完）')
-    ElMessage.error('BPMN渲染容器未找到，请切换到流程执行标签页')
+    ElMessage.error('BPMN渲染容器未找到')
     return
   }
 
   if (!bpmnXml.value) {
-    console.warn('BPMN XML为空')
     ElMessage.warning('BPMN XML数据为空')
     return
   }
@@ -296,7 +297,17 @@ const renderBpmnDiagram = async (retryCount = 0) => {
     // 适配画布大小
     const canvas = bpmnViewer.get('canvas')
     canvas.zoom('fit-viewport')
-    ElMessage.success('流程模板渲染成功')
+    // ElMessage.success('流程模板渲染成功')
+
+    // 渲染完成后，自动高亮所有当前任务（仅已启动预案，支持并行网关多节点）
+    if (currentPlan.value.procInstId && taskList.value.length > 0) {
+      // 提取所有待办任务的 bpmnElementId 组成数组
+      const elementIds = taskList.value
+        .filter(task => task.bpmnElementId) // 过滤掉无 bpmnElementId 的任务
+        .map(task => task.bpmnElementId) // 提取 elementId 数组
+      // 调用多节点高亮方法
+      highlightBpmnElements(elementIds)
+    }
   } catch (err) {
     console.error('BPMN渲染失败:', err)
     ElMessage.error('流程渲染失败：' + err.message)
@@ -333,17 +344,19 @@ const switchCamera = () => {
   }
 }
 
-// 获取流程任务列表
-const getTaskList = async (processInstId) => {
+// 查询当前待办任务
+const getCurrentTask = async (planId) => {
   try {
-    const res = await axios.get(`/flow/task/${processInstId}`)
+    const res = await axios.get(`/flow/task/${planId}`)
     if (res.code === 200) {
-      taskList.value = res.data
+      const taskData = res.data || {}
+      taskList.value = Array.isArray(taskData) ? taskData : [taskData]
     }
   } catch (e) {
     ElMessage.error('获取任务列表失败：' + (e.message || e))
   }
 }
+
 
 // 部署流程
 const deployPlan = async (planId) => {
@@ -381,20 +394,14 @@ const startPlan = async (planId) => {
     const res = await axios.post(`/flow/start/${planId}`)
     if (res.code === 200) {
       ElMessage.success('预案启动成功')
-      getPlanList()
-      if (currentPlan.value.id === planId) {
-        await getPlanList()
+       // 刷新预案列表和当前预案数据
+      await getPlanList()
         const updatedPlan = planList.value.find((item) => item.id === planId)
-        if (updatedPlan) {
-          currentPlan.value = updatedPlan
-          await getTaskList(updatedPlan.processInstId)
-          bpmnXml.value = ''
-          needRenderBpmn.value = false
-          if (bpmnViewer) {
-            bpmnViewer.destroy()
-            bpmnViewer = null
-          }
-        }
+      if (updatedPlan) {
+        currentPlan.value = updatedPlan
+        // 重新查询任务 + 重新渲染BPMN + 高亮新任务
+        await getCurrentTask(planId)
+        await renderBpmnDiagram()
       }
     } else {
       ElMessage.error(res.msg)
@@ -415,7 +422,10 @@ const stopPlan = async (processInstId) => {
     const res = await axios.post(`/flow/stop/${processInstId}`)
     if (res.code === 200) {
       ElMessage.success('预案终止成功')
-      getPlanList()
+      await getPlanList()
+      // 清空任务列表 + 取消高亮
+      taskList.value = []
+      cancelBpmnHighlight()
     } else {
       ElMessage.error(res.msg)
     }
@@ -426,20 +436,103 @@ const stopPlan = async (processInstId) => {
   }
 }
 
-// 完成步骤
+// 完成步骤（核心：同步刷新任务列表 + BPMN高亮）
+const completing = ref(false) // 完成步骤加载状态
 const completeStep = async (taskId) => {
+  completing.value = true // 点击后禁用按钮
   try {
-    const res = await axios.post(`/flow/complete/${taskId}`)
+    await ElMessageBox.confirm('确定要完成该步骤吗？', '步骤确认', {
+      type: 'info'
+    })
+
+    const res = await axios.post(`/flow/next/${taskId}`)
     if (res.code === 200) {
       ElMessage.success('步骤完成，流程已推进')
-      getTaskList(currentPlan.value.processInstId)
+
+      // 1. 刷新当前任务列表（获取最新任务，包括并行网关的多个任务）
+      await getCurrentTask(currentPlan.value.planId)
+
+      // 2. 重新渲染BPMN流程图 + 高亮所有最新任务
+      await renderBpmnDiagram()
+
+       // 3. 无任务时提示流程完成
+      if (taskList.value.length === 0) {
+        ElMessage.info('该预案流程已全部执行完成')
+      }
     } else {
       ElMessage.error(res.msg)
     }
   } catch (e) {
-    ElMessage.error('完成步骤失败：' + (e.message || e))
+    if (e !== 'cancel') {
+      ElMessage.error('完成步骤失败：' + (e.message || e))
+    }
+  }
+   finally {
+    completing.value = false // 无论成功失败，都取消加载状态
   }
 }
+
+
+// 多节点高亮：传入elementId数组，逐个添加高亮标记
+const highlightBpmnElements = (elementIds) => {
+  if (!bpmnViewer || !elementIds || elementIds.length === 0) return
+
+  // 先取消所有旧节点的高亮
+  cancelBpmnHighlight()
+
+  // 获取 BPMN 核心服务
+  const elementRegistry = bpmnViewer.get('elementRegistry')
+  const canvas = bpmnViewer.get('canvas')
+
+  // 遍历所有 elementId，逐个高亮
+  elementIds.forEach(elementId => {
+    const element = elementRegistry.get(elementId)
+    if (!element) {
+      console.warn(`未找到BPMN元素：${elementId}`)
+      return
+    }
+    canvas.addMarker(element.id, 'bpmn-highlight')
+    currentHighlightedElementIds.value.push(element.id) // 记录所有高亮节点ID
+  })
+
+  // 可选：自动定位到第一个高亮节点（方便查看）
+  if (elementIds.length > 0) {
+    const firstElement = elementRegistry.get(elementIds[0])
+    if (firstElement) {
+      canvas.zoom('fit-viewport', firstElement)
+    }
+  }
+}
+
+// 2. 取消所有节点的高亮（适配数组存储）
+const cancelBpmnHighlight = () => {
+  if (!bpmnViewer || currentHighlightedElementIds.value.length === 0) return
+
+  const elementRegistry = bpmnViewer.get('elementRegistry')
+  const canvas = bpmnViewer.get('canvas')
+
+  // 遍历所有高亮节点，移除标记
+  currentHighlightedElementIds.value.forEach(elementId => {
+    const element = elementRegistry.get(elementId)
+    if (element) {
+      canvas.removeMarker(element.id, 'bpmn-highlight')
+    }
+  })
+
+  // 清空高亮记录
+  currentHighlightedElementIds.value = []
+}
+
+// 监听弹窗关闭，销毁BPMN实例（避免内存泄漏）
+watch(viewDialogVisible, (newVal) => {
+  if (!newVal && bpmnViewer) {
+    bpmnViewer.destroy()
+    bpmnViewer = null
+    cancelBpmnHighlight()
+    bpmnXml.value = ''
+    taskList.value = []
+  }
+})
 
 // 销毁BPMN实例
 onUnmounted(() => {
@@ -477,5 +570,16 @@ onMounted(() => {
 }
 :deep(.bpmn-element) {
   fill: #fff;
+}
+
+/* 新增：BPMN元素高亮样式（红色边框+浅红背景，可自定义） */
+:deep(.bpmn-highlight .djs-visual > rect) {
+  stroke: #6cf56c !important; /* 高亮边框色 */
+  stroke-width: 3px !important; /* 高亮边框宽度 */
+  fill: rgba(108, 245, 161, 0.1) !important; /* 高亮背景色（半透明） */
+}
+:deep(.bpmn-highlight .djs-visual > path) {
+  stroke: #6cf56c !important;
+  stroke-width: 3px !important;
 }
 </style>

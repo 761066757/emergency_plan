@@ -2,7 +2,7 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2026-01-08 14:37:10
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-08 14:40:44
+ * @LastEditTime: 2026-01-29 15:56:11
  * @FilePath: \emergency_plan\src\utils\request.js
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -13,7 +13,7 @@ import { ElMessage } from 'element-plus'
 // 1. 创建 Axios 实例（配置基础路径、超时时间等）
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/', // 接口基础路径（从环境变量读取）
-  timeout: 10000, // 请求超时时间（10秒）
+  timeout: 60000, // 请求超时时间（60秒）
   headers: {
     'Content-Type': 'application/json;charset=utf-8', // 默认请求头
   },
