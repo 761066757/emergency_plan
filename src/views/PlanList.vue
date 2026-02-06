@@ -63,7 +63,7 @@
         </el-tab-pane>
         <el-tab-pane label="流程执行" name="view-process">
           <!-- 1. 已启动预案：显示任务列表 + 流程状态提示 -->
-          <div v-if="currentPlan.procInstId">
+          <div v-if="currentPlan.procInstId && currentPlan.flowStatus === 1">
             <el-alert title="当前预案已启动，正在执行中" type="info" :closable="false"></el-alert>
             <el-card style="margin-top: 20px; margin-bottom: 20px">
               <el-table :data="taskList" border>
@@ -136,7 +136,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios, { toFormData } from 'axios'
+import axios from 'axios'
 
 // 引入BPMN渲染相关依赖（移除废弃的keyboard配置）
 //import BpmnJS from 'bpmn-js/lib/Modeler'
@@ -154,6 +154,8 @@ const viewDialogVisible = ref(false)
 const viewActiveTab = ref('view-process') // 默认直接显示流程执行标签页
 const currentPlan = ref({})
 const taskList = ref([])
+const originalTaskList = ref([]) // 存储原始任务列表，用于处理并行任务
+const isParallelPhase = ref(false) // 标记当前是否处于并行任务阶段
 const cameraDialogVisible = ref(false)
 const currentCameraId = ref('')
 const currentPlanCameras = ref([])
@@ -255,7 +257,7 @@ const loadBpmnXml = async (planId) => {
 
 // 渲染BPMN流程图（核心修复：移除废弃的keyboard配置 + XML格式清理）
 const renderBpmnDiagram = async (retryCount = 0) => {
-  console.log('开始渲染BPMN流程图，重试次数:', retryCount)
+  console.log('开始渲染BPMN流程图,重试次数:', retryCount)
   // 销毁旧实例
   if (bpmnViewer) {
     bpmnViewer.destroy()
@@ -349,8 +351,52 @@ const getCurrentTask = async (planId) => {
   try {
     const res = await axios.get(`/flow/task/${planId}`)
     if (res.code === 200) {
-      const taskData = res.data || {}
-      taskList.value = Array.isArray(taskData) ? taskData : [taskData]
+      let taskData = res.data || {}
+      let tasks = Array.isArray(taskData) ? taskData : [taskData]
+
+      // 保存原始任务列表，用于处理并行任务
+      originalTaskList.value = tasks
+      console.log('任务列表（原始）:', originalTaskList.value)
+
+      // 识别并行任务：如果任务列表中有多个任务，且它们的bpmnElementId相同或任务名称相似，则认为是并行任务
+      isParallelPhase.value = tasks.length > 1
+      if (isParallelPhase.value) {
+        console.log('当前处于并行任务阶段，需要完成所有并行任务后才能继续')
+      }
+
+      // 处理任务列表：并行任务阶段显示所有任务，非并行任务阶段去重
+      let processedTasks = tasks
+      if (!isParallelPhase.value && tasks.length > 1) {
+        // 非并行任务阶段，对任务进行去重处理
+        const uniqueTasks = []
+        const taskKeys = new Set()
+        tasks.forEach(task => {
+          const taskKey = task.taskName || task.bpmnElementId || task.id
+          if (taskKey && !taskKeys.has(taskKey)) {
+            taskKeys.add(taskKey)
+            uniqueTasks.push(task)
+          }
+        })
+        processedTasks = uniqueTasks
+        console.log('非并行任务阶段，去重后的任务列表:', processedTasks)
+      }
+
+      taskList.value = processedTasks
+      console.log('任务列表（处理后）:', processedTasks)
+
+      // 并行任务阶段的安全检查：确保只显示当前并行任务，不显示后续任务
+      if (isParallelPhase.value) {
+        // 检查任务列表中的任务是否都是并行任务
+        const taskNames = new Set()
+        tasks.forEach(task => {
+          taskNames.add(task.taskName)
+        })
+
+        // 如果任务名称都相同或相似，说明是并行任务
+        if (taskNames.size === 1) {
+          console.log('所有任务都是并行任务，用户只能完成这些任务')
+        }
+      }
     }
   } catch (e) {
     ElMessage.error('获取任务列表失败：' + (e.message || e))
@@ -394,15 +440,26 @@ const startPlan = async (planId) => {
     const res = await axios.post(`/flow/start/${planId}`)
     if (res.code === 200) {
       ElMessage.success('预案启动成功')
-       // 刷新预案列表和当前预案数据
-      await getPlanList()
-        const updatedPlan = planList.value.find((item) => item.id === planId)
-      if (updatedPlan) {
-        currentPlan.value = updatedPlan
-        // 重新查询任务 + 重新渲染BPMN + 高亮新任务
-        await getCurrentTask(planId)
-        await renderBpmnDiagram()
+      console.log('启动成功，开始刷新数据...')
+
+      // 1. 立即更新当前预案状态（不等待getPlanList），确保界面立即响应
+      currentPlan.value = {
+        ...currentPlan.value,
+        flowStatus: 1,
+        procInstId: res.data.procInstId || currentPlan.value.procInstId
       }
+      console.log('当前预案状态已更新:', currentPlan.value)
+
+      // 2. 重新查询任务列表，确保有任务数据
+      await getCurrentTask(planId)
+      console.log('任务列表已更新:', taskList.value)
+
+      // 3. 重新渲染BPMN流程图
+      await renderBpmnDiagram()
+
+      // 4. 刷新预案列表（后台操作，不阻塞界面）
+      await getPlanList()
+      console.log('预案列表已刷新')
     } else {
       ElMessage.error(res.msg)
     }
@@ -445,17 +502,18 @@ const completeStep = async (taskId) => {
       type: 'info'
     })
 
+    // 1. 先完成当前点击的任务
     const res = await axios.post(`/flow/next/${taskId}`)
     if (res.code === 200) {
       ElMessage.success('步骤完成，流程已推进')
 
-      // 1. 刷新当前任务列表（获取最新任务，包括并行网关的多个任务）
+      // 2. 刷新当前任务列表（获取最新任务，包括并行网关的多个任务）
       await getCurrentTask(currentPlan.value.planId)
 
-      // 2. 重新渲染BPMN流程图 + 高亮所有最新任务
+      // 3. 重新渲染BPMN流程图 + 高亮所有最新任务
       await renderBpmnDiagram()
 
-       // 3. 无任务时提示流程完成
+      // 4. 无任务时提示流程完成
       if (taskList.value.length === 0) {
         ElMessage.info('该预案流程已全部执行完成')
       }
@@ -467,7 +525,7 @@ const completeStep = async (taskId) => {
       ElMessage.error('完成步骤失败：' + (e.message || e))
     }
   }
-   finally {
+  finally {
     completing.value = false // 无论成功失败，都取消加载状态
   }
 }
@@ -524,13 +582,24 @@ const cancelBpmnHighlight = () => {
 }
 
 // 监听弹窗关闭，销毁BPMN实例（避免内存泄漏）
-watch(viewDialogVisible, (newVal) => {
-  if (!newVal && bpmnViewer) {
-    bpmnViewer.destroy()
-    bpmnViewer = null
-    cancelBpmnHighlight()
-    bpmnXml.value = ''
-    taskList.value = []
+watch(viewDialogVisible, async (newVal) => {
+  if (!newVal) {
+    if (bpmnViewer) {
+      bpmnViewer.destroy()
+      bpmnViewer = null
+      cancelBpmnHighlight()
+      bpmnXml.value = ''
+      taskList.value = []
+    }
+    // 弹窗关闭后，重新查询预案列表，确保数据最新
+    try {
+      console.log('弹窗关闭，开始重新查询预案列表...')
+      await getPlanList()
+      console.log('预案列表重新查询完成')
+    } catch (error) {
+      console.error('重新查询预案列表失败:', error)
+      ElMessage.error('刷新预案列表失败：' + (error.message || error))
+    }
   }
 })
 
@@ -572,7 +641,7 @@ onMounted(() => {
   fill: #fff;
 }
 
-/* 新增：BPMN元素高亮样式（红色边框+浅红背景，可自定义） */
+/* 新增：BPMN元素高亮样式 */
 :deep(.bpmn-highlight .djs-visual > rect) {
   stroke: #6cf56c !important; /* 高亮边框色 */
   stroke-width: 3px !important; /* 高亮边框宽度 */
