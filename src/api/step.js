@@ -2,23 +2,23 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2026-01-13 15:13:51
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-13 16:30:18
+ * @LastEditTime: 2026-02-13 14:34:42
  * @FilePath: \emergency_plan\src\api\step.js
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 import request from '@/utils/request'
 
 // 1. 按模块查询步骤列表
-export function getStepListAll() {
+export function getStepList() {
   return request({
-    url: '/step/listAll',
+    url: '/step/getStepList',
     method: 'get',
   })
 }
 
-export function getStepList(moduleCode) {
+export function getStepListByM(moduleCode) {
   return request({
-    url: '/step/list',
+    url: '/step/getStepListByM',
     method: 'get',
     params: { moduleCode },
   })

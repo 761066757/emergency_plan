@@ -171,7 +171,7 @@ const currentHighlightedElementIds = ref([])
 // 获取摄像头列表
 const getCameraList = async () => {
   try {
-    const res = await axios.get('/camera/list')
+    const res = await axios.get('/camera/getCameralist')
     if (res.code === 200) {
       cameraList.value = res.data
     }
@@ -183,7 +183,7 @@ const getCameraList = async () => {
 // 获取预案列表
 const getPlanList = async () => {
   try {
-    const res = await axios.get('/plan/list')
+    const res = await axios.get('/plan/queryPlanList')
     if (res.code === 200) {
       planList.value = res.data
     }

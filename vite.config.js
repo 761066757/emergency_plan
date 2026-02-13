@@ -2,7 +2,7 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2025-12-30 10:25:36
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-22 10:41:17
+ * @LastEditTime: 2026-02-13 14:13:31
  * @FilePath: \emergency_plan\vite.config.js
  */
 import { fileURLToPath, URL } from 'node:url'
@@ -29,24 +29,26 @@ export default defineConfig({
         ws: true,
         rewrite: (path) => `/emergency${path}`, // 拼接上下文：/step/list → /emergency/step/list
       },
-      // 匹配 /api 开头的请求（字典接口）
-      '/api': {
+      // 匹配 /dict 开头的请求（字典接口）
+      '/dict': {
         target: 'http://localhost:3278',
         changeOrigin: true,
         ws: true,
-        rewrite: (path) => `/emergency${path}`, // 拼接上下文：/api/dict/xxx → /emergency/api/dict/xxx
+        rewrite: (path) => `/emergency${path}`, // 拼接上下文：/dict/xxx → /emergency/dict/xxx
       },
+      // 匹配 /plan 开头的请求（预案接口）
       '/plan': {
         target: 'http://localhost:3278',
         changeOrigin: true,
         ws: true,
         rewrite: (path) => `/emergency${path}`, // 拼接上下文：/plan/xxx → /emergency/plan/xxx
       },
+      // 匹配 /flow 开头的请求（Flowable接口）
       '/flow': {
         target: 'http://localhost:3278',
         changeOrigin: true,
         ws: true,
-        rewrite: (path) => `/emergency${path}`, // 拼接上下文：/plan/xxx → /emergency/plan/xxx
+        rewrite: (path) => `/emergency${path}`, // 拼接上下文：/flow/xxx → /emergency/flow/xxx
       },
       // ========== 新增：Flowable模型器代理 ==========
       '/flowable-modeler': {

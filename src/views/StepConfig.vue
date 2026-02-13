@@ -17,7 +17,7 @@
           v-model="currentModuleCode"
           placeholder="选择业务模块"
           style="width: 200px"
-          @change="getStepList"
+          @change="getStepInfo"
         >
           <el-option label="应急流程" value="emergency"></el-option>
           <el-option label="巡检流程" value="inspect"></el-option>
@@ -29,11 +29,11 @@
       <el-table :data="stepList" border style="margin-top: 20px" v-loading="loading" stripe>
         <el-table-column prop="stepCode" label="步骤编码" width="150"></el-table-column>
         <el-table-column prop="stepName" label="步骤名称" width="180"></el-table-column>
-        <el-table-column prop="stepTypeName " label="步骤类型" width="150">
+        <el-table-column prop="stepType" label="步骤类型" width="150">
           <!-- 步骤类型值转标签展示（更友好） -->
           <template #default="scope">
             <el-tag type="info">
-              {{ getStepTypeName(scope.row.stepTypeName) }}
+              {{ getStepTypeName(scope.row.stepType) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -99,10 +99,13 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // 引入自定义字典下拉组件
-// import DictSelect from '@/components/DictSelect.vue'
+import DictSelect from '@/components/DictSelect.vue'
 // 引入修正后的API
-import { getStepListAll, requestSaveStep, requestDeleteStep } from '@/api/step'
+import { getStepList, requestSaveStep, requestDeleteStep, getStepListByM } from '@/api/step'
 import { getDictOptionsByModuleAndType } from '@/api/dict'
+
+// 注册组件（Vue 3 Composition API 中通常不需要显式注册，但确保导入正确）
+// Vue 3 <script setup> 中，导入的组件会自动注册，所以主要是确保导入路径正确
 
 // 当前选择的模块编码（默认应急流程）
 const currentModuleCode = ref('emergency')
@@ -131,13 +134,13 @@ const stepRules = ref({
 })
 
 // 1. 加载步骤列表（核心：按模块查询，直接获取含类型名称的VO）
-const getStepList = async () => {
+const getStepInfo = async () => {
   loading.value = true
   try {
     // 先加载步骤类型字典（下拉用）
     await loadStepTypeDict()
     // 调用修正后的接口，传入模块编码
-    const res = await getStepListAll()
+    const res = await getStepList()
     if (res.code === 200) {
       stepList.value = res.data || []
     } else {
@@ -158,7 +161,7 @@ const loadStepList = async () => {
   try {
     // 先确保字典数据加载完成
     await loadStepTypeDict()
-    const res = await getStepListAll({ moduleCode: currentModuleCode.value })
+    const res = await getStepListByM(currentModuleCode.value)
     if (res.code === 200) {
       stepList.value = res.data || []
     } else {
@@ -191,8 +194,8 @@ const loadStepTypeDict = async () => {
 // 步骤类型值转标签（展示用）
 const getStepTypeName = (value) => {
   if (!value) return '-'
-  const item = stepTypeDict.value.find((item) => item.value === value)
-  return item ? item.label : value
+  const item = stepTypeDict.value.find((item) => item.label === value)
+  return item ? item.value : value
 }
 
 // 3. 打开新增弹窗
@@ -258,8 +261,7 @@ const handleDeleteStep = async (id) => {
 
 // 页面加载时初始化
 onMounted(() => {
-  getStepList()
-  loadStepTypeDict() // 加载步骤类型字典用于展示
+  loadStepList() // 使用新的加载函数，包含字典数据预加载
 })
 </script>
 
