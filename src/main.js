@@ -16,6 +16,8 @@ import App from './App.vue'
 import ElementPlus from 'element-plus'
 // 2. 必须引入 Element Plus 的样式文件（关键遗漏项）
 import 'element-plus/dist/index.css'
+// 3. 引入 Element Plus 中文语言包
+import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 // 可选：引入 Element Plus 图标（如果用到）
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 // 引入路由
@@ -28,21 +30,21 @@ import axios from 'axios'
 // 创建 Vue 应用实例
 const app = createApp(App)
 
-// 3. 全局注册 Element Plus
-app.use(ElementPlus)
+// 4. 全局注册 Element Plus，并配置中文语言包
+app.use(ElementPlus, { locale: zhCn })
 
 // 可选：全局注册 Element Plus 所有图标（方便模板中直接使用）
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-// 4. 注册路由
+// 5. 注册路由
 app.use(router)
 
-// 5. 注册 Pinia
+// 6. 注册 Pinia
 app.use(createPinia())
 
-// 6. 全局挂载 Axios（Vue 3 写法）
+// 7. 全局挂载 Axios（Vue 3 写法）
 // 方式1：挂载到 globalProperties（模板中用 $axios，组合式API中需通过 getCurrentInstance 获取）
 app.config.globalProperties.$axios = axios
 // 方式2：提供 Axios 实例（推荐在组合式API中使用 inject 获取）

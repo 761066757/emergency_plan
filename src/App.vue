@@ -2,28 +2,29 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2025-12-30 10:25:35
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-14 11:18:39
+ * @LastEditTime: 2026-06-12 14:06:56
  * @FilePath: \emergency_plan\src\App.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
 <script setup>
 import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+// import HelloWorld from './components/HelloWorld.vue'
 </script>
 
 <template>
   <header>
-    <img alt="Vue logo" class="logo" src="@/assets/logo.svg" width="125" height="125" />
+    <!-- <img alt="Vue logo" class="logo" src="@/assets/logo.svg" width="125" height="125" /> -->
 
     <div class="wrapper">
-      <HelloWorld msg="You did it!" />
+      <!-- <HelloWorld msg="You did it!" /> -->
 
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
-        <RouterLink to="/step/config">StepConfig</RouterLink>
-        <RouterLink to="/plan/edit">PlanEdit</RouterLink>
-        <RouterLink to="/plan/list">PlanList</RouterLink>
+        <RouterLink to="/task/config">任务配置</RouterLink>
+        <RouterLink to="/plan/edit">预案编辑</RouterLink>
+        <RouterLink to="/plan/list">应急预案</RouterLink>
+        <RouterLink to="/plan/history">历史记录</RouterLink>
         <RouterLink to="/plan/bpmnTest">BpmnTest</RouterLink>
       </nav>
     </div>

@@ -35,6 +35,8 @@
     "@eslint/js": "^9.39.2",
     "@vitejs/plugin-vue": "^6.0.3",
     "@vue/eslint-config-prettier": "^10.2.0",
+    "bpmnlint": "^11.12.1",
+    "bpmnlint-loader": "^0.1.6",
     "eslint": "^9.39.2",
     "eslint-plugin-vue": "~10.6.2",
     "globals": "^16.5.0",

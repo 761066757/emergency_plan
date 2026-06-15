@@ -22,7 +22,7 @@ const request = axios.create({
 // 2. 请求拦截器（发送请求前的处理：如添加 token、拼接参数等）
 request.interceptors.request.use(
   (config) => {
-    // 示例：从 localStorage 获取 token，添加到请求头（如果你的项目需要登录认证）
+    // 示例：从 localStorage 获取 token，添加到请求头（如果项目需要登录认证）
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`

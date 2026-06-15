@@ -2,15 +2,16 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2025-12-30 10:25:36
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-01-14 10:57:22
+ * @LastEditTime: 2026-06-12 14:06:30
  * @FilePath: \emergency_plan\src\router\index.js
  * @Description: 路由配置
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import StepConfig from '../views/StepConfig.vue'
-import PlanEdit from '../views/PlanEdit.vue'
-import PlanList from '../views/PlanList.vue'
+import TaskConfig from '../modules/taskConfig/taskConfig.vue'
+import PlanEdit from '../modules/planEdit/planEdit.vue'
+import PlanList from '../modules/planList/planList.vue'
+import PlanHistory from '../modules/planHistory/planHistory.vue'
 import BpmnTest from '@/components/BpmnTest.vue'
 
 const router = createRouter({
@@ -34,9 +35,9 @@ const router = createRouter({
     //   redirect: '/plan/list',
     // },
     {
-      path: '/step/config',
-      name: 'StepConfig',
-      component: StepConfig,
+      path: '/task/config',
+      name: 'TaskConfig',
+      component: TaskConfig,
     },
     {
       path: '/plan/edit',
@@ -47,6 +48,11 @@ const router = createRouter({
       path: '/plan/list',
       name: 'PlanList',
       component: PlanList,
+    },
+    {
+      path: '/plan/history',
+      name: 'PlanHistory',
+      component: PlanHistory,
     },
     {
       path: '/plan/bpmnTest',
