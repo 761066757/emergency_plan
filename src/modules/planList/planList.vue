@@ -124,6 +124,7 @@
       :visible="viewDialogVisible"
       @update:visible="handleDialogVisibilityChange"
       :plan-data="currentPlan"
+      :camera-list="cameraList"
     />
   </div>
 </template>
@@ -151,6 +152,9 @@ import {
   getPlanStatusType
 } from '@/config/planEnums'
 
+// 引入摄像头列表
+import { CAMERA_LIST } from '@/config/planEnums'
+
 // 引入详情弹窗组件
 import ViewPlanDialog from './ViewPlanDialog.vue'
 
@@ -165,6 +169,10 @@ const queryForm = ref({
 const planList = ref([])
 const viewDialogVisible = ref(false)
 const currentPlan = ref({})
+const cameraList = ref([])  // 添加摄像头列表
+
+// 初始化摄像头列表
+cameraList.value = CAMERA_LIST
 
 // 路由实例
 const router = useRouter()

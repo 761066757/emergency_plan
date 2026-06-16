@@ -88,7 +88,7 @@
 
         <el-table-column prop="optName" label="操作员" width="100" align="center" />
 
-        <el-table-column label="操作" width="80" align="center" fixed="right">
+        <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               type="success"
@@ -96,6 +96,15 @@
               circle
               @click="handleView(row)"
               title="查看详情"
+            >
+              <el-icon><View /></el-icon>
+            </el-button>
+            <el-button
+              type="primary"
+              size="small"
+              circle
+              @click="handleViewPlan(row)"
+              title="查看预案"
             >
               <el-icon><View /></el-icon>
             </el-button>
@@ -152,6 +161,14 @@
         <el-button @click="detailDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- 预案详情弹窗 -->
+    <HistoryPlanDialog
+      :visible="historyPlanDialogVisible"
+      :plan-data="currentPlanData"
+      :camera-list="cameraList"
+      @update:visible="historyPlanDialogVisible = $event"
+    />
   </div>
 </template>
 
@@ -160,6 +177,12 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { getPlanHistory } from './planHistory.route.js'
+
+// 导入枚举配置
+import { CAMERA_LIST } from '@/config/planEnums'
+
+// 导入HistoryPlanDialog组件
+import HistoryPlanDialog from './HistoryPlanDialog.vue'
 
 // 搜索表单
 const searchForm = reactive({
@@ -172,6 +195,12 @@ const searchForm = reactive({
 const allTableData = ref([]) // 存储所有数据
 const loading = ref(false)
 
+// 摄像头列表
+const cameraList = ref([])
+
+// 初始化摄像头列表
+cameraList.value = CAMERA_LIST
+
 // 分页
 const pagination = reactive({
   pageNum: 1,
@@ -181,6 +210,10 @@ const pagination = reactive({
 // 详情弹窗
 const detailDialogVisible = ref(false)
 const currentRow = ref(null)
+
+// 预案详情弹窗
+const historyPlanDialogVisible = ref(false)
+const currentPlanData = ref(null)
 
 // 预案类型映射
 const planTypeMap = {
@@ -272,6 +305,12 @@ const handleReset = () => {
 const handleView = (row) => {
   currentRow.value = row
   detailDialogVisible.value = true
+}
+
+// 查看预案
+const handleViewPlan = (row) => {
+  currentPlanData.value = row
+  historyPlanDialogVisible.value = true
 }
 
 // 分页大小改变

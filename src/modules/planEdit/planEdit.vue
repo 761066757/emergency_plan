@@ -236,6 +236,9 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, UploadFilled, Folder, Operation } from '@element-plus/icons-vue'
 import { useRouter, useRoute } from 'vue-router'
+import {
+  CAMERA_LIST  // 导入摄像头列表
+} from '@/config/planEnums'
 
 // 引入完整的bpmn-js（保留所有核心模块）
 import BpmnModeler from 'bpmn-js/lib/Modeler'
@@ -987,31 +990,31 @@ const handleSaveCanvas = async () => {
           modeling.updateProperties(processElement, {
             name: planForm.planName
           })
-          
+
           // 同时更新流程ID为预案的ID（如果存在）
           if (planForm.id) {
             modeling.updateProperties(processElement, {
               id: planForm.id
             })
-            
+
             // 获取definitions来更新diagram
             const definitions = bpmnModeler.getDefinitions()
-            
+
             if (definitions && definitions.diagrams) {
               definitions.diagrams.forEach(diagram => {
-                if (diagram.$type === 'bpmndi:BPMNDiagram' && 
-                    diagram.plane && 
+                if (diagram.$type === 'bpmndi:BPMNDiagram' &&
+                    diagram.plane &&
                     diagram.plane.$type === 'bpmndi:BPMNPlane') {
-                    
+
                   // 检查是否是与当前流程相关的plane
-                  if (diagram.plane.bpmnElement && 
-                      (diagram.plane.bpmnElement.id === 'emergencyPlanProcess' || 
+                  if (diagram.plane.bpmnElement &&
+                      (diagram.plane.bpmnElement.id === 'emergencyPlanProcess' ||
                        diagram.plane.bpmnElement.id === processElement.id)) {
                     // 使用moddle的工厂方法创建新的属性
                     moddle.ids.unclaim(diagram.id); // 释放旧ID
                     moddle.ids.claim(`BPMNDiagram_${planForm.id}`, diagram); // 分配新ID
                     diagram.id = `BPMNDiagram_${planForm.id}`;
-                    
+
                     moddle.ids.unclaim(diagram.plane.id); // 释放旧ID
                     moddle.ids.claim(`BPMNPlane_${planForm.id}`, diagram.plane); // 分配新ID
                     diagram.plane.id = `BPMNPlane_${planForm.id}`;
@@ -1020,7 +1023,7 @@ const handleSaveCanvas = async () => {
                 }
               });
             }
-            
+
             console.log('已更新BPMN流程名称为：', planForm.planName)
             console.log('已更新BPMN流程ID为：', planForm.id)
             console.log('已更新BPMNDiagram和BPMNPlane的ID及bpmnElement引用')
@@ -1294,24 +1297,16 @@ const loadTaskList = async () => {
   }
 }
 
-// 加载摄像头列表
+// 获取摄像头列表
 const loadCameraList = async () => {
   try {
-    const res = await getCameraList()
-    if (res.code === 200) {
-      cameraList.value = res.data || []
-    }
+    // 使用枚举中的摄像头列表
+    cameraList.value = CAMERA_LIST
   } catch (error) {
-    // 如果后端接口不存在或出错，使用测试数据
-    console.log('加载摄像头失败，使用测试数据:', error.message)
-    ElMessage.warning('加载摄像头失败，已使用测试数据')
-    cameraList.value = [
-      { id: 1, name: '摄像头1', cameraName: '摄像头1', status: 1 },
-      { id: 2, name: '摄像头2', cameraName: '摄像头2', status: 1 },
-      { id: 3, name: '摄像头3', cameraName: '摄像头3', status: 1 },
-      { id: 4, name: '摄像头4', cameraName: '摄像头4', status: 1 },
-      { id: 5, name: '摄像头5', cameraName: '摄像头5', status: 1 }
-    ]
+    console.error('获取摄像头列表失败:', error)
+    // 如果获取失败，使用默认列表
+    cameraList.value = CAMERA_LIST
+    ElMessage.error('获取摄像头列表失败：' + error.message)
   }
 }
 

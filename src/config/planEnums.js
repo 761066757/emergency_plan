@@ -16,6 +16,15 @@ export const PLAN_STATUS_ENUMS = [
   { value: 2, label: '执行中', type: 'success' }
 ]
 
+// 摄像头列表枚举
+export const CAMERA_LIST = [
+  { id: 1, name: '摄像头1', cameraName: '摄像头1', status: 1 },
+  { id: 2, name: '摄像头2', cameraName: '摄像头2', status: 1 },
+  { id: 3, name: '摄像头3', cameraName: '摄像头3', status: 1 },
+  { id: 4, name: '摄像头4', cameraName: '摄像头4', status: 1 },
+  { id: 5, name: '摄像头5', cameraName: '摄像头5', status: 1 }
+]
+
 // 获取预案类型标签
 export function getPlanTypeLabel(value) {
   const item = PLAN_TYPE_ENUMS.find(item => item.value === value)
@@ -38,4 +47,9 @@ export function getPlanStatusLabel(value) {
 export function getPlanStatusType(value) {
   const item = PLAN_STATUS_ENUMS.find(item => item.value === value)
   return item ? item.type : 'info'
+}
+
+// 获取摄像头列表
+export function getCameraList() {
+  return CAMERA_LIST
 }

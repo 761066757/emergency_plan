@@ -6,9 +6,6 @@
         <!-- 顶部标题栏 -->
         <div class="panel-header">
           <h3 class="plan-title">{{ currentPlanData.planName || '预案详情' }}</h3>
-          <el-tag :type="getPlanStatusType(currentPlanData.planStatus)" size="large">
-            {{ getPlanStatusLabel(currentPlanData.planStatus) }}
-          </el-tag>
         </div>
 
         <!-- BPMN流程图容器 -->
@@ -22,48 +19,11 @@
           </div>
         </div>
 
-        <!-- 底部任务执行区域（仅在已启动时显示） -->
-        <div v-if="currentPlanData.planStatus === 2" class="task-execution-section">
-          <!-- 第一行：当前执行任务信息 -->
-          <div class="task-info-row">
-            <span class="task-label">当前执行任务：</span>
-            <span class="task-name">{{ currentTask?.taskName || '任务已结束' }}</span>
-          </div>
-
-          <!-- 第二行：补充说明和确认按钮 -->
-          <div class="task-action-row" v-if="currentTask">
-            <el-input
-              v-model="executeNote "
-              type="textarea"
-              :rows="2"
-              placeholder="请输入情况补充说明..."
-              class="task-description-input"
-            />
-            <el-button
-              type="primary"
-              size="large"
-              @click="completeCurrentTask"
-              :loading="completing"
-              :disabled="completing || !currentTask"
-              class="confirm-btn"
-            >
-              确认，下一步
-            </el-button>
-          </div>
-          <div class="task-completed-message" v-else>
-            <el-alert
-              title="流程已全部执行完成"
-              type="success"
-              :closable="false"
-              center
-            />
-          </div>
-        </div>
       </div>
 
       <!-- 右侧：操作面板 -->
       <div class="right-panel">
-        <!-- 运行时间显示 - 临时强制显示用于调试 -->
+        <!-- 运行时间显示 - 仅在预案进行中显示 -->
         <div class="time-display">
           <div class="time-value">{{ formattedRuntime }}</div>
           <div class="time-label">预案累计运行时间</div>
@@ -72,33 +32,13 @@
 
         <!-- 操作按钮组 -->
         <div class="action-buttons">
-          <!-- 启动按钮 - 仅当预案已发布且未启动时可用 -->
-          <el-button
-            type="success"
-            size="large"
-            :disabled="!(currentPlanData.planStatus === 1)"
-            @click="startPlanFunc(originalPlanId)"
-          >
-            开始预案
-          </el-button>
-
-          <!-- 终止按钮 - 仅在预案进行中时可用 -->
-          <el-button
-            type="danger"
-            size="large"
-            :disabled="!(currentPlanData.planStatus === 2)"
-            @click="stopPlanFunc(originalPlanId)"
-          >
-            终止预案
-          </el-button>
-
-          <!-- 实时监控按钮 - 始终可用 -->
+          <!-- 录像回放按钮 -->
           <el-button
             type="primary"
             size="large"
             @click="viewCamera(currentPlanData)"
           >
-            实时监控
+            录像回放
           </el-button>
 
           <!-- 查看预案文档 - 始终可用 -->
@@ -152,7 +92,7 @@
   </el-dialog>
 
   <!-- 摄像头监控弹窗 -->
-  <el-dialog v-model="cameraDialogVisible" title="实时监控" width="800px">
+  <el-dialog v-model="cameraDialogVisible" title="录像回放" width="800px">
     <div class="camera-container">
       <el-select v-model="currentCameraId" style="margin-bottom: 20px" @change="switchCamera">
         <el-option
@@ -199,15 +139,7 @@
 
 <script setup>
 import { ref, onUnmounted, nextTick, watch, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  getCurrentTask,
-  startPlan as startProcessPlan,
-  completeTask,
-  stopPlan as stopProcessPlan
-} from './planList.route'
-
-import { getPlanDetail } from '../planEdit/planEdit.route'
+import { ElMessage } from 'element-plus'
 
 // 引入任务配置相关接口
 import { queryByType } from '../taskConfig/taskConfig.route'
@@ -217,14 +149,6 @@ import BpmnJS from 'bpmn-js/lib/Viewer'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
 import 'bpmn-js/dist/assets/diagram-js.css'
 
-// 引入枚举配置
-import {
-  getPlanStatusLabel,
-  getPlanStatusType
-} from '@/config/planEnums'
-
-// 导入realTimeMonitor接口
-import { realTimeMonitor } from '../planEdit/planEdit.route'
 
 // 接收props
 const props = defineProps({
@@ -268,37 +192,26 @@ const currentPlanCameras = ref([])
 const bpmnXml = ref('')
 const bpmnContainerRef = ref(null)
 let bpmnViewer = null
-let planType = ref('')
 const currentHighlightedElementIds = ref([])
-const completing = ref(false)
-const executeNote = ref('') // 任务补充说明
-const runtimeUpdateTimer = ref(null) // 运行时间更新定时器
-const currentTime = ref(Date.now()) // 当前时间，用于计算运行时长
 
-// 计算当前执行的任务（第一个未完成的任务）
-const currentTask = computed(() => {
-  if (!taskList.value || taskList.value.length === 0) return null
-  // 返回第一个未完成的任务
-  return taskList.value.find(task => !task.completed) || taskList.value[0]
-})
-
-// 计算运行时间 - 基于relCreateTime和当前时间的差值
+// 计算运行时间 - 基于startTime和endTime的差值（固定时间）
 const runtimeInMilliseconds = computed(() => {
-  // 使用后端返回的 relCreateTime 字段（预案关联创建时间/启动时间）
-  const startTimeValue = currentPlanData.value.relCreateTime
+  // 使用后端返回的 startTime 和 endTime 字段计算固定运行时间
+  const startTimeValue = currentPlanData.value.startTime
+  const endTimeValue = currentPlanData.value.endTime
 
-  if (!startTimeValue) {
+  if (!startTimeValue || !endTimeValue) {
     return 0
   }
 
   const startTime = new Date(startTimeValue).getTime()
+  const endTime = new Date(endTimeValue).getTime()
 
-  if (isNaN(startTime)) {
+  if (isNaN(startTime) || isNaN(endTime)) {
     return 0
   }
 
-  const now = currentTime.value
-  const diff = now - startTime
+  const diff = endTime - startTime
 
   // 确保返回的是有效的数值
   return Math.max(0, diff)
@@ -306,11 +219,6 @@ const runtimeInMilliseconds = computed(() => {
 
 // 格式化运行时间为 HH:MM:SS
 const formattedRuntime = computed(() => {
-  // 如果预案是未发布状态，直接返回 00:00:00
-  if (currentPlanData.value.planStatus === 0) {
-    return '00:00:00'
-  }
-
   const totalSeconds = Math.floor(runtimeInMilliseconds.value / 1000)
 
   if (totalSeconds <= 0) return '00:00:00'
@@ -415,71 +323,6 @@ const openInNewTab = () => {
   window.open(documentPreviewUrl.value, '_blank')
   // 关闭弹窗
   documentDialogVisible.value = false
-}
-
-// 加载BPMN XML - 支持传入已获取的预案数据，避免重复调用接口
-const loadBpmnXml = async (planId, planData = null) => {
-  try {
-    console.log('加载BPMN XML，planId:', planId)
-
-    if (!planId) {
-      console.error('planId 不能为空')
-      ElMessage.warning('预案ID不能为空')
-      bpmnXml.value = ''
-      return
-    }
-
-    // 如果传入了planData，直接使用；否则调用接口获取
-    let res
-    if (planData) {
-      console.log('使用传入的预案数据')
-      res = { code: 200, data: planData }
-    } else {
-      console.log('调用接口获取预案数据')
-      res = await getPlanDetail(planId)
-    }
-
-    console.log('BPMN接口响应:', res)
-
-    if (res.code === 200 && res.data) {
-      let xml = res.data.bpmnXml
-      planType.value = res.data.planType
-
-      // 打印完整的预案数据，查看所有字段
-      console.log('=== 后端返回的完整预案数据 ===')
-      console.log(res.data)
-      console.log('所有字段名:', Object.keys(res.data))
-      console.log('==============================')
-
-      if (!xml || typeof xml !== 'string' || xml.trim() === '') {
-        console.warn('BPMN XML数据为空或格式不正确:', xml)
-        ElMessage.warning('该预案未配置流程模板')
-        bpmnXml.value = ''
-        return
-      }
-
-      xml = xml.replace(/\\n/g, '\n').replace(/\\"/g, '"')
-
-      if (!xml.trim().startsWith('<?xml') && !xml.trim().includes('<bpmn:') && !xml.trim().includes('<definitions')) {
-        console.error('BPMN XML格式不正确:', xml.substring(0, 100) + '...')
-        ElMessage.error('流程模板格式错误')
-        bpmnXml.value = ''
-        return
-      }
-
-      bpmnXml.value = xml
-      console.log('BPMN XML加载成功，处理后长度:', bpmnXml.value.length)
-    } else {
-      console.warn('接口返回错误:', res)
-      ElMessage.warning('加载流程模板失败：' + (res.msg || '未知错误'))
-      bpmnXml.value = ''
-    }
-  } catch (e) {
-    console.error('加载BPMN XML时发生错误:', e)
-    console.error('错误详情:', e.message, e.stack)
-    ElMessage.warning('加载流程模板失败：' + (e.message || e))
-    bpmnXml.value = ''
-  }
 }
 
 // 渲染BPMN流程图
@@ -620,53 +463,72 @@ const cancelSelectedNodes = () => {
 
 // 查看摄像头
 const viewCamera = (plan) => {
-  console.log('查看摄像头功能被调用')
-  console.log('传入的plan对象:', plan)
-  console.log('plan.cameraIds:', plan.cameraIds)
-  console.log('props.cameraList:', props.cameraList)
+  console.log('HistoryPlanDialog - viewCamera被调用，plan数据:', plan)
+  console.log('HistoryPlanDialog - plan.cameraIds:', plan.cameraIds, '类型:', typeof plan.cameraIds)
+  console.log('HistoryPlanDialog - plan.videoUrls:', plan.videoUrls, '类型:', typeof plan.videoUrls)
 
   if (!plan.cameraIds) {
-    console.log('预案未关联摄像头ID')
+    console.log('HistoryPlanDialog - 摄像头ID为空或未定义')
     ElMessage.warning('该预案未关联任何摄像头')
     return
   }
 
   // 兼容不同的分隔符：竖线 | 或分号 ;
   const separator = plan.cameraIds.includes('|') ? '|' : ';';
-  console.log('检测到的分隔符:', separator)
-
+  console.log('HistoryPlanDialog - 检测到的分隔符:', separator)
   const cameraIds = plan.cameraIds.split(separator).filter(id => id.trim() !== '');
-  console.log('解析后的cameraIds数组:', cameraIds)
+  console.log('HistoryPlanDialog - 解析后的摄像头ID数组:', cameraIds)
 
-  currentPlanCameras.value = props.cameraList.filter((camera) => {
-    const isIncluded = cameraIds.includes(camera.id.toString())
-    console.log(`摄像头 ${camera.id} (${camera.cameraName}) 是否匹配:`, isIncluded)
-    return isIncluded
-  })
-
-  console.log('筛选后的currentPlanCameras:', currentPlanCameras.value)
-  console.log('currentPlanCameras.length:', currentPlanCameras.value.length)
+  console.log('HistoryPlanDialog - props.cameraList:', props.cameraList)
+  currentPlanCameras.value = props.cameraList.filter((camera) =>
+    cameraIds.includes(camera.id.toString()),
+  )
+  console.log('HistoryPlanDialog - 筛选后的摄像头列表:', currentPlanCameras.value)
 
   if (currentPlanCameras.value.length > 0) {
-    console.log('找到关联的摄像头，准备打开弹窗')
+    console.log('HistoryPlanDialog - 找到关联摄像头，设置为:', currentPlanCameras.value[0].id)
     currentCameraId.value = currentPlanCameras.value[0].id
-    console.log('设置当前摄像头ID:', currentCameraId.value)
     cameraDialogVisible.value = true
     // 使用nextTick确保DOM更新后再执行switchCamera
     nextTick(() => {
-      console.log('执行switchCamera')
       switchCamera()
     })
   } else {
-    console.log('未找到匹配的摄像头设备')
+    console.log('HistoryPlanDialog - 未找到匹配的摄像头设备')
     ElMessage.warning('未找到关联的摄像头设备')
   }
 }
 
 // 切换摄像头
-const switchCamera = async () => {
-  const camera = currentPlanCameras.value.find((item) => item.id === currentCameraId.value)
-  if (camera) {
+const switchCamera = () => {
+  // 从当前预案数据中解析videoUrls
+  const videoUrls = currentPlanData.value.videoUrls;
+  console.log('切换摄像头 - videoUrls字段:', videoUrls);
+
+  // 如果存在videoUrls字段，则按照原有逻辑解析
+  if (videoUrls) {
+    console.log('解析videoUrls:', videoUrls);
+
+    // 解析videoUrls字符串 (格式: camerId1:videoUrl1;camerId2:videoUrl2;camerId3:videoUrl3)
+    const videoMap = {};
+    const pairs = videoUrls.split(';');
+    pairs.forEach(pair => {
+      if (pair.trim()) {
+        const separatorIndex = pair.indexOf(':');
+        if (separatorIndex !== -1) {
+          const cameraId = pair.substring(0, separatorIndex);
+          const videoUrl = pair.substring(separatorIndex + 1);
+
+          console.log(`解析出 - 摄像头ID: ${cameraId}, 视频URL: ${videoUrl}`);
+
+          if (cameraId && videoUrl) {
+            videoMap[cameraId.trim()] = videoUrl.trim();
+          }
+        }
+      }
+    });
+    console.log('解析后的videoMap:', videoMap);
+
     const video = document.getElementById('cameraVideo')
     if (video) {
       // 停止当前视频流（如果有）
@@ -676,36 +538,53 @@ const switchCamera = async () => {
         video.srcObject = null;
       }
 
-      try {
-        // 调用后端接口获取实时监控流
-        const response = await realTimeMonitor(currentPlanData.value.planId, camera.id)
+      // 根据当前选中的摄像头ID获取对应的视频URL
+      const videoUrl = videoMap[currentCameraId.value];
+      console.log('当前选中的摄像头ID:', currentCameraId.value, '对应的视频URL:', videoUrl);
 
-        if (response.code === 200) {
-          // 成功获取到视频流URL
-          const streamUrl = response.data?.streamUrl || response.data
+      if (videoUrl) {
+        // 设置新的视频源
+        video.src = videoUrl;
+        video.load(); // 重新加载视频源
 
-          if (streamUrl) {
-            // 设置新的视频源
-            video.src = streamUrl
-            video.load(); // 重新加载视频源
-
-            video.play().catch(err => {
-              console.error('视频播放失败:', err)
-              ElMessage.error('摄像头流播放失败：' + err.message)
-            })
-          } else {
-            ElMessage.warning('未获取到视频流地址')
-          }
-        } else {
-          ElMessage.error('获取视频流失败：' + (response.msg || '未知错误'))
-        }
-      } catch (error) {
-        console.error('调用realTimeMonitor接口失败:', error)
-        ElMessage.error('获取视频流失败：' + error.message)
+        video.play().catch(err => {
+          console.error('视频播放失败:', err)
+          ElMessage.error('录像回放失败：' + err.message)
+        })
+      } else {
+        console.log('未找到摄像头ID为', currentCameraId.value, '的录像文件');
+        ElMessage.warning('未找到该摄像头的录像文件');
       }
     } else {
       console.error('未找到视频元素 #cameraVideo')
-      ElMessage.error('摄像头播放组件初始化失败')
+      ElMessage.error('录像播放组件初始化失败')
+    }
+  } else {
+    // 如果videoUrls字段不存在，则尝试使用摄像头的默认URL（用于实时监控）
+    console.log('videoUrls字段不存在，尝试使用摄像头默认URL');
+    const camera = currentPlanCameras.value.find((item) => item.id === currentCameraId.value)
+    if (camera) {
+      const video = document.getElementById('cameraVideo')
+      if (video) {
+        // 停止当前视频流（如果有）
+        if (video.srcObject) {
+          const tracks = video.srcObject.getTracks();
+          tracks.forEach(track => track.stop());
+          video.srcObject = null;
+        }
+
+        // 设置新的视频源（使用摄像头的URL）
+        video.src = camera.cameraUrl;
+        video.load(); // 重新加载视频源
+
+        video.play().catch(err => {
+          console.error('视频播放失败:', err)
+          ElMessage.error('摄像头流播放失败：' + err.message)
+        })
+      } else {
+        console.error('未找到视频元素 #cameraVideo')
+        ElMessage.error('摄像头播放组件初始化失败')
+      }
     }
   }
 }
@@ -720,154 +599,6 @@ const handleNodeDialogClose = () => {
 
   // 重置选中的节点信息
   selectedNodeInfo.value = { taskList: [] }
-}
-
-// 查询当前待办任务
-const getCurrentTaskFunc = async (planId) => {
-  try {
-    const res = await getCurrentTask(planId)
-    if (res.code === 200) {
-      let taskData = res.data || {}
-      let tasks = Array.isArray(taskData) ? taskData : [taskData]
-
-      originalTaskList.value = tasks
-      console.log('任务列表（原始）:', originalTaskList.value)
-
-      isParallelPhase.value = tasks.length > 1
-      if (isParallelPhase.value) {
-        console.log('当前处于并行任务阶段，需要完成所有并行任务后才能继续')
-      }
-
-      let processedTasks = tasks
-      if (!isParallelPhase.value && tasks.length > 1) {
-        const uniqueTasks = []
-        const taskKeys = new Set()
-        tasks.forEach(task => {
-          const taskKey = task.taskName || task.bpmnElementId || task.id
-          if (taskKey && !taskKeys.has(taskKey)) {
-            taskKeys.add(taskKey)
-            uniqueTasks.push(task)
-          }
-        })
-        processedTasks = uniqueTasks
-        console.log('非并行任务阶段，去重后的任务列表:', processedTasks)
-      }
-
-      taskList.value = processedTasks
-      console.log('任务列表（处理后）:', processedTasks)
-
-      if (isParallelPhase.value) {
-        const taskNames = new Set()
-        tasks.forEach(task => {
-          taskNames.add(task.taskName)
-        })
-
-        if (taskNames.size === 1) {
-          console.log('所有任务都是并行任务，用户只能完成这些任务')
-        }
-      }
-    }
-  } catch (e) {
-    ElMessage.error('获取任务列表失败：' + (e.message || e))
-  }
-}
-
-// 启动预案
-const startPlanFunc = async (planId) => {
-  try {
-    await ElMessageBox.confirm('确定要启动该预案吗？', '提示', {
-      type: 'warning',
-    })
-    const res = await startProcessPlan(planId)
-    if (res.code === 200) {
-      ElMessage.success('预案启动成功')
-      console.log('启动成功，开始刷新数据...')
-
-      // 等待一小段时间，确保流程实例已经创建完成
-      await new Promise(resolve => setTimeout(resolve, 800))
-
-      // 获取最新的预案数据
-      const detailRes = await getPlanDetail(planId)
-      if (detailRes.code === 200 && detailRes.data) {
-        const latestPlanData = detailRes.data
-
-        // 更新本地副本
-        currentPlanData.value = { ...latestPlanData }
-
-        // 通知父组件更新为最新数据
-        emit('update:planData', latestPlanData)
-        console.log('预案数据已更新为最新:', latestPlanData)
-
-        // 使用planId获取任务列表
-        await getCurrentTaskFunc(planId)
-        console.log('任务列表已更新:', taskList.value)
-
-        // 重新加载BPMN XML（传入已获取的数据，避免重复调用接口）
-        await loadBpmnXml(planId, latestPlanData)
-
-        // 等待DOM更新，然后重新渲染BPMN流程图（包含高亮逻辑）
-        await nextTick()
-
-        // 渲染BPMN图并应用高亮
-        await renderBpmnDiagram()
-
-        console.log('启动预案流程完成，BPMN图已渲染并高亮')
-      } else {
-        ElMessage.error('获取最新预案数据失败')
-      }
-    } else {
-      ElMessage.error(res.msg)
-    }
-  } catch (e) {
-    if (e !== 'cancel') {
-      ElMessage.info('取消启动')
-    }
-  }
-}
-
-// 终止预案
-const stopPlanFunc = async (planId) => {
-  try {
-    await ElMessageBox.confirm('确定要终止该预案吗？', '提示', {
-      type: 'warning',
-    })
-    const res = await stopProcessPlan(planId)
-    if (res.code === 200) {
-      ElMessage.success('预案终止成功')
-
-      // 重新调用getPlanDetail接口获取最新的预案数据 - 使用函数参数planId
-      const detailRes = await getPlanDetail(planId)
-      if (detailRes.code === 200 && detailRes.data) {
-        const latestPlanData = detailRes.data
-
-        // 更新本地副本，使UI能够即时响应
-        currentPlanData.value = { ...latestPlanData }
-
-        // 通知父组件更新为最新数据
-        emit('update:planData', latestPlanData)
-        console.log('预案数据已更新为最新:', latestPlanData)
-      } else {
-        ElMessage.error('获取最新预案数据失败')
-
-        // 如果获取最新数据失败，使用本地更新的数据
-        currentPlanData.value = {
-          ...currentPlanData.value,
-          flowStatus: 0,
-        }
-
-        emit('update:planData', currentPlanData.value)
-      }
-
-      taskList.value = []
-      cancelBpmnHighlight()
-    } else {
-      ElMessage.error(res.msg)
-    }
-  } catch (e) {
-    if (e !== 'cancel') {
-      ElMessage.info('取消终止')
-    }
-  }
 }
 
 // 多节点高亮
@@ -914,66 +645,6 @@ const cancelBpmnHighlight = () => {
   currentHighlightedElementIds.value = []
 }
 
-// 完成当前步骤
-const completeCurrentTask = async () => {
-  if (!currentTask.value) {
-    ElMessage.warning('当前没有可执行的任务')
-    return
-  }
-
-  try {
-    completing.value = true
-    console.log('完成任务:', currentTask.value.taskId, '补充说明:', executeNote.value)
-
-    const res = await completeTask(currentTask.value.taskId, executeNote.value)
-
-    if (res.code === 200) {
-      const msg = res.data?.msg || '操作成功'
-      const nextTask = res.data?.nextTaskName || '任务已完成'
-      ElMessage.success(`${msg}：${nextTask}`)
-      executeNote.value = '' // 清空补充说明
-
-      // 等待一小段时间，确保后端任务状态已更新
-      await new Promise(resolve => setTimeout(resolve, 300))
-
-      // 重新加载任务列表 - 使用originalPlanId确保参数始终有效
-      if (!originalPlanId.value) {
-        console.error('无法获取originalPlanId')
-        ElMessage.error('获取预案ID失败')
-        return
-      }
-
-      await getCurrentTaskFunc(originalPlanId.value)
-      console.log('完成任务后，新的任务列表:', taskList.value)
-
-      // 检查任务列表是否为空，如果为空表示流程已完成
-      if (taskList.value.length === 0) {
-        console.log('所有任务已完成，流程结束')
-        ElMessage.info('该预案流程已全部执行完成')
-
-        // 更新本地计划数据，标记流程为已完成
-        currentPlanData.value = {
-          ...currentPlanData.value,
-          flowStatus: 0 // 标记为已完成状态
-        }
-
-        // 通知父组件更新
-        emit('update:planData', currentPlanData.value)
-      }
-
-      // 重新渲染BPMN流程图以更新高亮状态
-      await renderBpmnDiagram()
-    } else {
-      ElMessage.error(res.msg || '完成任务失败')
-    }
-  } catch (error) {
-    console.error('完成任务时发生错误:', error)
-    ElMessage.error('完成任务失败：' + error.message)
-  } finally {
-    completing.value = false
-  }
-}
-
 // 处理弹窗关闭
 const handleClose = (val = false) => {
   emit('update:visible', val)
@@ -1002,8 +673,55 @@ watch(() => props.planData, async (newPlanData) => {
     // 同步到本地副本
     currentPlanData.value = { ...newPlanData }
 
-    await loadBpmnXml(newPlanData.planId)
-    await getCurrentTaskFunc(newPlanData.planId)
+    // 直接使用传入的预案数据，不再调用接口
+    if (newPlanData.bpmnXml) {
+      bpmnXml.value = newPlanData.bpmnXml
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+    }
+
+    // 直接使用传入的任务列表，不再调用接口
+    if (newPlanData.currentTaskList) {
+      let tasks = Array.isArray(newPlanData.currentTaskList) ? newPlanData.currentTaskList : [newPlanData.currentTaskList]
+
+      originalTaskList.value = tasks
+      console.log('任务列表（原始）:', originalTaskList.value)
+
+      isParallelPhase.value = tasks.length > 1
+      if (isParallelPhase.value) {
+        console.log('当前处于并行任务阶段，需要完成所有并行任务后才能继续')
+      }
+
+      let processedTasks = tasks
+      if (!isParallelPhase.value && tasks.length > 1) {
+        const uniqueTasks = []
+        const taskKeys = new Set()
+        tasks.forEach(task => {
+          const taskKey = task.taskName || task.bpmnElementId || task.id
+          if (taskKey && !taskKeys.has(taskKey)) {
+            taskKeys.add(taskKey)
+            uniqueTasks.push(task)
+          }
+        })
+        processedTasks = uniqueTasks
+        console.log('非并行任务阶段，去重后的任务列表:', processedTasks)
+      }
+
+      taskList.value = processedTasks
+      console.log('任务列表（处理后）:', processedTasks)
+
+      if (isParallelPhase.value) {
+        const taskNames = new Set()
+        tasks.forEach(task => {
+          taskNames.add(task.taskName)
+        })
+
+        if (taskNames.size === 1) {
+          console.log('所有任务都是并行任务，用户只能完成这些任务')
+        }
+      }
+    }
+
     await nextTick()
     if (bpmnXml.value) {
       await renderBpmnDiagram()
@@ -1011,41 +729,15 @@ watch(() => props.planData, async (newPlanData) => {
   }
 }, { immediate: true })
 
-// 启动运行时间更新定时器
-const startRuntimeTimer = () => {
-  // 清除旧定时器
-  if (runtimeUpdateTimer.value) {
-    clearInterval(runtimeUpdateTimer.value)
-  }
-
-  // 初始化当前时间
-  currentTime.value = Date.now()
-
-  // 每秒更新一次当前时间，触发运行时间重新计算
-  runtimeUpdateTimer.value = setInterval(() => {
-    currentTime.value = Date.now()
-  }, 1000)
-}
-
-// 停止运行时间更新定时器
-const stopRuntimeTimer = () => {
-  if (runtimeUpdateTimer.value) {
-    clearInterval(runtimeUpdateTimer.value)
-    runtimeUpdateTimer.value = null
-  }
-}
-
-// 立即启动定时器，因为运行时间总是需要显示（根据需求描述或现有模板结构）
-startRuntimeTimer()
-
-// 组件卸载时清理定时器
+// 组件卸载时清理资源
 onUnmounted(() => {
-  stopRuntimeTimer()
   if (bpmnViewer) {
     bpmnViewer.destroy()
     bpmnViewer = null
   }
 })
+
+
 </script>
 
 <style scoped>
