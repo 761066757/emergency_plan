@@ -139,8 +139,7 @@ import {
   deployPlan as deployProcessPlan,
   revokePlan as revokeProcessPlan,
 } from './planList.route'
-
-import { getPlanList } from '../planEdit/planEdit.route'
+import { getPlanList, getCameraList } from '../planEdit/planEdit.route'
 
 // 引入枚举配置
 import {
@@ -172,7 +171,24 @@ const currentPlan = ref({})
 const cameraList = ref([])  // 添加摄像头列表
 
 // 初始化摄像头列表
-cameraList.value = CAMERA_LIST
+const loadCameraList = async () => {
+  try {
+    // 先调用getCameraList接口获取实时摄像头列表
+    const res = await getCameraList()
+    if (res.code === 200 && res.data) {
+      cameraList.value = res.data
+    } else {
+      // 接口返回非成功状态，使用默认列表
+      cameraList.value = CAMERA_LIST
+      console.warn('摄像头列表接口返回非成功状态，使用默认列表')
+    }
+  } catch (error) {
+    console.error('获取摄像头列表失败:', error)
+    // 如果获取失败，使用默认列表
+    cameraList.value = CAMERA_LIST
+    ElMessage.warning('获取摄像头列表失败，使用默认列表')
+  }
+}
 
 // 路由实例
 const router = useRouter()
@@ -292,6 +308,7 @@ const revokePlanFunc = async (planId) => {
 // 页面加载
 onMounted(() => {
   getPlanListFunc('onMounted')
+  loadCameraList()  // 加载摄像头列表
 })
 </script>
 

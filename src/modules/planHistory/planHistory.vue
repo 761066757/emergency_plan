@@ -178,8 +178,9 @@ import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { getPlanHistory } from './planHistory.route.js'
 
-// 导入枚举配置
+// 导入枚举配置和摄像头列表API
 import { CAMERA_LIST } from '@/config/planEnums'
+import { getCameraList } from '@/modules/planEdit/planEdit.route'
 
 // 导入HistoryPlanDialog组件
 import HistoryPlanDialog from './HistoryPlanDialog.vue'
@@ -198,8 +199,28 @@ const loading = ref(false)
 // 摄像头列表
 const cameraList = ref([])
 
+// 加载摄像头列表
+const loadCameraList = async () => {
+  try {
+    // 先调用getCameraList接口获取实时摄像头列表
+    const res = await getCameraList()
+    if (res.code === 200 && res.data) {
+      cameraList.value = res.data
+    } else {
+      // 接口返回非成功状态，使用默认列表
+      cameraList.value = CAMERA_LIST
+      console.warn('摄像头列表接口返回非成功状态，使用默认列表')
+    }
+  } catch (error) {
+    console.error('获取摄像头列表失败:', error)
+    // 如果获取失败，使用默认列表
+    cameraList.value = CAMERA_LIST
+    ElMessage.warning('获取摄像头列表失败，使用默认列表')
+  }
+}
+
 // 初始化摄像头列表
-cameraList.value = CAMERA_LIST
+// cameraList.value = CAMERA_LIST
 
 // 分页
 const pagination = reactive({
@@ -325,8 +346,9 @@ const handleCurrentChange = (val) => {
 }
 
 // 初始化
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
+  await loadCameraList()
 })
 </script>
 

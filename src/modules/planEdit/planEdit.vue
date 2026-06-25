@@ -1300,13 +1300,20 @@ const loadTaskList = async () => {
 // 获取摄像头列表
 const loadCameraList = async () => {
   try {
-    // 使用枚举中的摄像头列表
-    cameraList.value = CAMERA_LIST
+    // 先调用getCameraList接口获取实时摄像头列表
+    const res = await getCameraList()
+    if (res.code === 200 && res.data) {
+      cameraList.value = res.data
+    } else {
+      // 接口返回非成功状态，使用默认列表
+      cameraList.value = CAMERA_LIST
+      console.warn('摄像头列表接口返回非成功状态，使用默认列表')
+    }
   } catch (error) {
     console.error('获取摄像头列表失败:', error)
     // 如果获取失败，使用默认列表
     cameraList.value = CAMERA_LIST
-    ElMessage.error('获取摄像头列表失败：' + error.message)
+    ElMessage.warning('获取摄像头列表失败，使用默认列表')
   }
 }
 

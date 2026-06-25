@@ -2,7 +2,7 @@
  * @Author: sp1ke 761066757@qq.com
  * @Date: 2026-01-13 15:23:40
  * @LastEditors: sp1ke 761066757@qq.com
- * @LastEditTime: 2026-06-16 08:42:33
+ * @LastEditTime: 2026-06-25 10:25:31
  * @FilePath: \emergency_plan\src\modules\planEdit\planEdit.route.js
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -37,6 +37,7 @@ export function getPlanDetail(planId) {  // 修改参数为直接传入id
 
 
 // BPMN文件校验
+// TODO 待完善-GRPC接口需要将文件类型转换为 Base64 字符串
 export function bpmnValidate(data) {
   return request({
     url: '/plan/bpmnValidate',
@@ -46,8 +47,8 @@ export function bpmnValidate(data) {
 }
 
 
-// 获取摄像头列表
-// TODO 待完善
+// 获取摄像头列表（树状）
+// TODO 待完善-此接口由壳提供
 export const getCameraList = () => {
   return request({
     url: '/camera/queryCameraList',
@@ -56,6 +57,7 @@ export const getCameraList = () => {
 }
 
 // 上传预案文档
+// TODO 待完善-GRPC接口需要将文件类型转换为 Base64 字符串
 export const uploadPlanDoc = (formData) => {
   return request({
     url: '/plan/uploadPlanDoc',
